@@ -284,3 +284,27 @@ test('CLI exit codes: preflight, probe, verify, batch, exceptions, usage', async
   assert.equal(b.code, 1, b.out); assert.match(b.out, /1\/2 sites pass/); assert.match(b.out, /SKIP/);
   assert.equal((await run(['nope'])).code, 2);
 });
+
+// ---------------------------------------------------------------- web-qa-agent bridge
+import { toAgentFindings, targetPages, findAgent } from '../src/agent-bridge.mjs';
+
+test('bridge: converts a run to web-qa-agent findings; excepted rows are not gaps', () => {
+  const fake = { ...mainRun, results: mainRun.results.map(r => r.from === '/old-wrong' ? { ...r, excepted: { reason: 'known' } } : r) };
+  const out = toAgentFindings(fake);
+  assert.equal(out.engine, 'cutovergate');
+  const by = Object.fromEntries(out.results.map(r => [r.from, r.result]));
+  assert.equal(by['/old-302'], 'WRONG-STATUS'); assert.equal(by['/old-missing'], 'MISSING'); assert.equal(by['/old-any'], 'PASS'); assert.equal(by['/old-loop'], 'LOOP');
+  assert.ok(!out.findings.some(f => f.title.includes('/old-wrong')), 'excepted is not a gap');
+  assert.ok(out.findings.every(f => f.steps.length && f.expected && f.actual && f.severity));
+  assert.equal(out.findings.find(f => f.title.includes('/old-missing')).severity, 'High');
+});
+
+test('bridge: target pages are deduped, same-site only and spread across groups', () => {
+  const t = targetPages(mainRun, 3);
+  assert.equal(t.pages.length, 3);
+  assert.equal(new Set(t.pages).size, 3);
+  assert.ok(t.pages.every(u => u.startsWith(mainRun.origin)));
+  const groups = new Set(t.pages.map(u => mainRun.results.find(r => mainRun.origin + r.actual === u).group));
+  assert.ok(groups.size >= 2, 'round-robin across groups');
+  assert.equal(findAgent('/nonexistent/path') === '/nonexistent/path', false);
+});

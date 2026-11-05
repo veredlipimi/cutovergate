@@ -46,7 +46,7 @@ export async function runSite(site, opts = {}) {
     preflight: { summary: pf.summary, errors: pf.issues.filter(i => i.severity === 'error') },
     gate, taxonomy: taxonomy(results), results,
   };
-  run.delta = recordRun(historyDir || path.join(outDir, 'history'), domain, run, { compareTo });
+  run.delta = recordRun(historyDir || path.join(outDir, 'history', 'redirects'), domain, run, { compareTo });
   run.files = writeExports(run, outDir);
   return run;
 }

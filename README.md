@@ -153,6 +153,21 @@ cutovergate batch --sites sites.json --strict
 
 The table shows, per site: gate, phase, passed/probed, and the first failures. It is also written as CSV and JSON. Sites not yet on the new platform are listed as SKIPPED.
 
+### `qa`: the redirect is right, but does the page work?
+
+CutoverGate checks that every old URL lands on the right page. [web-qa-agent](https://github.com/veredlipimi/web-qa-agent) checks that the page it lands on actually works. `qa` connects the two:
+
+```bash
+cutovergate qa --map map.csv --candidates "staging=…,live=…" --fingerprint "header:…" --max-pages 20 --lang he
+```
+
+1. It runs the full gate. If the gate fails, page QA is skipped; pass `--force` to QA only the pages that already land correctly.
+2. It takes the destination pages from the map. Duplicates are removed, and a capped run still covers every `group` (round-robin).
+3. It runs the agent's automated pass on exactly those pages: audit (accessibility, performance, RTL, console/network, passive security), the field matrix, and a report. There is no full-site crawl.
+4. It writes `claude-prompt.md` into the QA folder. Paste it into Claude Code to continue with the exploratory pass.
+
+The agent is found at `--agent`, `$WEB_QA_AGENT` or `~/.claude/skills/web-qa-agent`. The link works the other way too: when CutoverGate is installed, the agent's own redirect check uses it as its engine, so both tools always classify a redirect the same way.
+
 ### `files`: are linked documents still there?
 
 ```bash
@@ -169,7 +184,7 @@ CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurr
 ## Tests
 
 ```bash
-npm test     # 19 tests against local mock sites, covering every result type, gate rule, exception rule and CLI exit code
+npm test     # 21 tests against local mock sites, covering every result type, gate rule, exception rule and CLI exit code
 ```
 
 ## Credits
@@ -192,6 +207,7 @@ MIT © Vered Li
 5. **דלתא:** החל מההרצה השנייה הדוח מציג רגרסיות, כשלים חדשים ומה תוקן.
 6. `verify` רץ אחרי ההעברה ומשווה מול ההרצה האחרונה שלפניה.
 7. `batch` מריץ את הבדיקה על הרבה אתרים בבת אחת, ו-`files` בודק שקבצי PDF ומסמכים מקושרים עדיין זמינים.
+8. `qa` מחבר ל-[web-qa-agent](https://github.com/veredlipimi/web-qa-agent): אחרי שהשער עובר, הסוכן בודק את עמודי היעד עצמם (נגישות, טפסים, RTL, ביצועים), וכך יודעים לא רק שההפניה נכונה אלא גם שהעמוד שמגיעים אליו תקין.
 
 **ייצוא:** דוח HTML עם סינון, קובץ CSV לגיליון או למייל עדכון, וקובץ JSON לכרטיס.
 

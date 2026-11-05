@@ -10,6 +10,7 @@ import { runSite } from '../src/run.mjs';
 import { printSummary } from '../src/report.mjs';
 import { addException, removeException, loadExceptions, triageExceptions } from '../src/gate.mjs';
 import { checkFiles } from '../src/files.mjs';
+import { findAgent, runAgentOnTargets, targetPages } from '../src/agent-bridge.mjs';
 
 const HELP = `CutoverGate ${VERSION} — release gate for website migrations
 
@@ -26,6 +27,8 @@ Commands
               [--concurrency 6] [--timeout-ms 20000] [--max-hops 6] [--delay-ms 0] [--quiet]
   verify      Post-cutover pass: probe with --expect-phase live --compare-to other-phase
   batch       Run probe for many sites: --sites sites.json [probe options]
+  qa          Gate first, then QA the destination pages with web-qa-agent
+              probe options + [--agent PATH] [--max-pages 20] [--viewports mobile,desktop] [--lang en|he] [--force]
   files       Check linked files (PDFs, documents) are reachable
               --origin URL (--urls FILE | --pages FILE) [--pattern REGEX] [--json] [--out DIR]
   exceptions  add --file F --path P --reason "…" [--ttl none|7|14|30|90] [--by NAME]
@@ -34,7 +37,7 @@ Commands
 Exit codes: 0 = gate PASS / no errors · 1 = gate FAIL / errors found · 2 = usage or setup problem
 `;
 
-const BOOL = ['strict', 'checkTargets', 'json', 'quiet', 'help', 'all'];
+const BOOL = ['strict', 'checkTargets', 'json', 'quiet', 'help', 'all', 'force'];
 const argv = process.argv.slice(2);
 const cmd = argv[0];
 const a = parseArgs(argv.slice(1), BOOL);
@@ -92,6 +95,33 @@ async function main() {
       console.log(c.dim(`\n  report: ${run.files.html}\n  csv:    ${run.files.csv}\n  json:   ${run.files.json}`));
     }
     return run.gate.status === 'PASS' ? 0 : 1;
+  }
+
+  if (cmd === 'qa') {
+    if (!a.map) die('--map is required');
+    if (!a.origin && !a.candidates) die('--origin or --candidates is required');
+    const agent = findAgent(a.agent);
+    const o = probeOpts();
+    const run = await runSite({ map: a.map, origin: a.origin, candidates: a.candidates, exceptions: a.exceptions, domain: a.domain }, o);
+    if (run.skipped) { console.log(`\n${c.yellow(c.bold(' NOT ON TARGET '))}  ${run.domain}: ${run.reason}`); return 1; }
+    printSummary(run, { quiet: true });
+    if (run.gate.status !== 'PASS' && !a.force) {
+      console.log(`\n  ${c.yellow('Page QA skipped:')} the redirect gate must pass first — fix the redirects, or add --force to QA the pages that already land correctly.\n  ${c.dim(run.files.html)}`);
+      return 1;
+    }
+    const maxPages = num(a.maxPages, 20);
+    if (!agent) {
+      const t = targetPages(run, maxPages);
+      console.log(`\n  ${c.yellow('web-qa-agent not found.')} Install it, or pass --agent PATH:\n    git clone https://github.com/veredlipimi/web-qa-agent ~/.claude/skills/web-qa-agent\n    node ~/.claude/skills/web-qa-agent/scripts/setup.mjs\n  ${t.pages.length} destination pages are ready for QA.`);
+      return 2;
+    }
+    console.log(`\n${c.bold('Page QA')} with web-qa-agent (${agent})`);
+    const qa = await runAgentOnTargets(run, { agent, maxPages, outDir: o.outDir, viewports: a.viewports || 'mobile,desktop', lang: a.lang || 'en', log: s => process.stdout.write(c.dim(s)) });
+    if (qa.skipped) { console.log(`  ${c.yellow(qa.skipped)}`); return 1; }
+    if (qa.failedStep) { console.log(`  ${c.red(`${qa.failedStep} failed`)}\n${c.dim(qa.error)}`); return 2; }
+    console.log(`\n  ${qa.pages.length} destination pages${qa.total > qa.pages.length ? ` (of ${qa.total})` : ''} · ${qa.gaps} gaps identified · QA gate ${qa.qaGate || '—'}\n  ${qa.verdict}`);
+    console.log(c.dim(`\n  redirect report: ${run.files.html}\n  page QA report:  ${qa.report}\n  continue in Claude Code (exploratory pass): ${path.join(qa.qaDir, 'claude-prompt.md')}`));
+    return run.gate.status === 'PASS' && qa.qaGate !== 'FAIL' ? 0 : 1;
   }
 
   if (cmd === 'batch') {
