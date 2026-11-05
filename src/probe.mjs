@@ -81,7 +81,7 @@ const sameTarget = (a, b) => {
 export function classify(rule, t, { origin, siteHosts, accept, checkTargets }) {
   const hosts = new Set(siteHosts);
   const first = t.hops[0];
-  const base = { httpStatus: first?.status ?? 0, location: first?.location ?? null, hops: t.hops.length - 1, chain: t.hops.map(h => `${h.status ?? '…'} ${comparable(h.url, origin, hosts)}`).join(' → ') };
+  const base = { httpStatus: first?.status ?? 0, location: first?.location ?? null, landedUrl: t.hops.at(-1)?.url ?? null, hops: t.hops.length - 1, chain: t.hops.map(h => `${h.status ?? '…'} ${comparable(h.url, origin, hosts)}`).join(' → ') };
   if (t.error && t.hops.length === 1) return { ...base, result: 'ERROR', detail: t.error };
 
   const retired = rule.status === 404 || rule.status === 410;

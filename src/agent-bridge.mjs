@@ -62,8 +62,10 @@ export function targetPages(run, max = 20) {
   const byGroup = new Map();
   const seen = new Set();
   for (const r of run.results) {
-    if (!r.ok || !r.actual || /^https?:/i.test(r.actual)) continue;
-    const url = run.origin + r.actual;
+    if (!r.ok || r.result === 'GONE_OK') continue;
+    // The page the user really lands on (may be on the new domain), else origin + target path.
+    const url = r.landedUrl || (r.actual && !/^https?:/i.test(r.actual) ? run.origin + r.actual : null);
+    if (!url) continue;
     if (seen.has(url)) continue;
     seen.add(url);
     if (!byGroup.has(r.group)) byGroup.set(r.group, []);
@@ -94,12 +96,13 @@ function step(agent, script, args, log) {
 /** Run the agent's automated pipeline on the destination pages. Returns the QA run folder. */
 export async function runAgentOnTargets(run, { agent, maxPages = 20, outDir, viewports = 'mobile,desktop', lang = 'en', log } = {}) {
   const { pages, total, groups } = targetPages(run, maxPages);
+  const siteOrigin = pages[0] ? new URL(pages[0]).origin : run.origin; // QA the new site, not the old domain
   const qaDir = path.join(outDir, `qa-${run.domain.replace(/[^a-z0-9.-]+/gi, '_')}-${run.id}`);
   fs.mkdirSync(qaDir, { recursive: true });
   fs.writeFileSync(path.join(qaDir, 'targets.txt'), pages.join('\n') + '\n');
   fs.writeFileSync(path.join(qaDir, 'findings.redirects.json'), JSON.stringify(toAgentFindings(run), null, 2));
   fs.writeFileSync(path.join(qaDir, 'claude-prompt.md'), [
-    `QA ${run.origin}`, '',
+    `QA ${siteOrigin}`, '',
     `Context: website migration. CutoverGate gate = ${run.gate.status} (${run.phase}), report: ${run.files.html}`,
     `Scope: the ${pages.length} destination pages in targets.txt${total > pages.length ? ` (sampled from ${total}, spread across groups: ${Object.keys(groups).join(', ')})` : ''}.`,
     'The automated pass already ran in this folder — continue from Phase 4 (field matrix review + exploratory) and finish with the report.',
@@ -107,8 +110,8 @@ export async function runAgentOnTargets(run, { agent, maxPages = 20, outDir, vie
   if (!pages.length) return { qaDir, pages, total, skipped: 'no passing same-site targets' };
 
   const steps = [
-    ['preflight', 'preflight.mjs', ['--url', run.origin + '/', '--out', qaDir]],
-    ['crawl', 'crawl.mjs', ['--url', run.origin + '/', '--urls', path.join(qaDir, 'targets.txt'), '--no-follow', '--max-pages', String(pages.length), '--out', qaDir]],
+    ['preflight', 'preflight.mjs', ['--url', siteOrigin + '/', '--out', qaDir]],
+    ['crawl', 'crawl.mjs', ['--url', siteOrigin + '/', '--urls', path.join(qaDir, 'targets.txt'), '--no-follow', '--max-pages', String(pages.length), '--out', qaDir]],
     ['audit', 'audit.mjs', ['--sitemap', path.join(qaDir, 'sitemap.json'), '--out', qaDir, '--viewports', viewports]],
     ['field-matrix', 'field-matrix.mjs', ['--sitemap', path.join(qaDir, 'sitemap.json'), '--out', qaDir]],
     ['report', 'report.mjs', ['--run', qaDir, '--lang', lang, '--title', `Post-migration QA — ${run.domain}`]],
