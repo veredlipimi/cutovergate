@@ -1,0 +1,18 @@
+# Example: block a release until every redirect in the map passes.
+name: redirect-gate
+on:
+  workflow_dispatch:
+    inputs:
+      origin: { description: 'Origin to probe (staging or live)', required: true }
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: node bin/cutovergate.mjs preflight --map examples/map.csv
+      - run: node bin/cutovergate.mjs probe --map examples/map.csv --origin "${{ inputs.origin }}" --exceptions examples/exceptions.json --strict --out gate-run
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: redirect-gate-report, path: gate-run }

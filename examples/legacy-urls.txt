@@ -1,0 +1,4 @@
+# Every legacy URL you know about: old sitemap, analytics top pages, backlinks.
+/about-us.html
+/contact_us.htm
+/careers.html

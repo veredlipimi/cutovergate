@@ -1,0 +1,8 @@
+{
+  "fingerprint": "header:x-powered-by=NewCMS",
+  "exceptions": "exceptions.json",
+  "sites": [
+    { "domain": "www.site-one.example", "map": "map.csv", "candidates": "staging=https://site-one.staging.example,live=https://www.site-one.example" },
+    { "domain": "www.site-two.example", "map": "map.csv", "candidates": "staging=https://site-two.staging.example,live=https://www.site-two.example" }
+  ]
+}

@@ -1,0 +1,5 @@
+node_modules/
+cutovergate-runs/
+gate-run/
+*.log
+.DS_Store

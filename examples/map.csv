@@ -1,0 +1,9 @@
+from,to,status,group,note
+/about-us.html,/about,301,static,
+/contact_us.htm,/contact,301,static,
+/team.htm,/team,301,static,
+/blog/2019/05/hello-world.html,/blog/hello-world,301,blog,
+/blog/2020/01/new-office.html,/blog/new-office,301,blog,
+/products.aspx?id=12,/shop/blue-chair,301,shop,query-string source
+/old-promo,,410,retired,campaign ended
+/press,*,301,static,any target is fine

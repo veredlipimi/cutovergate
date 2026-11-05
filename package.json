@@ -1,0 +1,14 @@
+{
+  "name": "cutovergate",
+  "version": "0.1.0",
+  "description": "Release gate for website migrations: verify every legacy URL redirects where your map says — before and after DNS cutover.",
+  "type": "module",
+  "bin": { "cutovergate": "bin/cutovergate.mjs" },
+  "scripts": { "test": "node --test test/cutovergate.test.mjs" },
+  "engines": { "node": ">=18.17" },
+  "files": ["bin", "src", "examples", "docs", "README.md", "LICENSE"],
+  "keywords": ["redirect", "301", "migration", "seo", "qa", "cutover", "release-gate"],
+  "author": "Vered Li",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/veredlipimi/cutovergate" }
+}

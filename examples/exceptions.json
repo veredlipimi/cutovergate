@@ -1,0 +1,6 @@
+{
+  "exceptions": [
+    { "path": "/press", "reason": "Press page rebuilt next sprint, ticket WEB-123", "added": "2026-11-01", "expires": "2026-11-15" },
+    { "path": "/legacy-archive/*", "reason": "Archive intentionally retired, approved by content owner", "added": "2026-11-01", "expires": null }
+  ]
+}
