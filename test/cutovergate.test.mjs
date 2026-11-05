@@ -308,3 +308,22 @@ test('bridge: target pages are deduped, same-site only and spread across groups'
   assert.ok(groups.size >= 2, 'round-robin across groups');
   assert.equal(findAgent('/nonexistent/path') === '/nonexistent/path', false);
 });
+
+// ---------------------------------------------------------------- harvest + "*" rules
+import { cleanPaths } from '../src/harvest.mjs';
+
+test('harvest: keeps pages, drops assets, tracking params and duplicates', () => {
+  const out = cleanPaths(['http://old.example/', 'http://old.example/about/', 'http://old.example/about', 'http://old.example/style.css',
+    'http://old.example/wp-json/x', 'http://old.example/blog/post-1?utm_source=x', 'http://old.example/shop/item?id=4', 'http://old.example/feed/']);
+  assert.deepEqual(out, ['/', '/about/', '/shop/item?id=4']);
+});
+
+test('"*" rules: a deep page sent to the homepage is a gap; a broken landing page is a gap', async () => {
+  const f = path.join(tmp, 'any.csv');
+  fs.writeFileSync(f, 'from,to\n/old-home-1,*\n/old-broken,*\n/old-any,*\n');
+  const run = await runSite({ map: f, origin: site.url }, opts({ name: 'any', checkTargets: true }));
+  const r = byFrom(run);
+  assert.equal(r['/old-home-1'].result, 'WRONG_TARGET'); assert.match(r['/old-home-1'].detail, /homepage/);
+  assert.equal(r['/old-broken'].result, 'TARGET_BROKEN');
+  assert.equal(r['/old-any'].result, 'REDIRECT_OK');
+});

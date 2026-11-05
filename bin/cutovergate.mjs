@@ -11,6 +11,7 @@ import { printSummary } from '../src/report.mjs';
 import { addException, removeException, loadExceptions, triageExceptions } from '../src/gate.mjs';
 import { checkFiles } from '../src/files.mjs';
 import { findAgent, runAgentOnTargets, targetPages } from '../src/agent-bridge.mjs';
+import { harvest, writeStarterMap } from '../src/harvest.mjs';
 
 const HELP = `CutoverGate ${VERSION} — release gate for website migrations
 
@@ -27,6 +28,9 @@ Commands
               [--concurrency 6] [--timeout-ms 20000] [--max-hops 6] [--delay-ms 0] [--quiet]
   verify      Post-cutover pass: probe with --expect-phase live --compare-to other-phase
   batch       Run probe for many sites: --sites sites.json [probe options]
+  harvest     No map? Build a starter map from the Wayback Machine's copy of the old site
+              --old-domain HOST --out map.csv [--mode same-path|any] [--limit 150] [--from YYYY] [--to YYYY]
+              same-path = domain move (old path → same path); any = platform change (any working, non-homepage target)
   qa          Gate first, then QA the destination pages with web-qa-agent
               probe options + [--agent PATH] [--max-pages 20] [--viewports mobile,desktop] [--lang en|he] [--force]
   files       Check linked files (PDFs, documents) are reachable
@@ -152,6 +156,17 @@ async function main() {
     const pass = rows.filter(r => r.gate === 'PASS').length;
     console.log(`\n  ${pass}/${rows.length} sites pass · ${rows.filter(r => r.gate === 'FAIL').length} fail · ${rows.filter(r => r.gate === 'SKIPPED').length} skipped\n  ${c.dim(base + '.csv')}`);
     return rows.every(r => r.gate === 'PASS') ? 0 : 1;
+  }
+
+  if (cmd === 'harvest') {
+    if (!a.oldDomain || !a.out) die('--old-domain and --out are required');
+    const mode = a.mode === 'same-path' ? 'same-path' : 'any';
+    const paths = await harvest(a.oldDomain, { limit: num(a.limit, 150), from: a.from, to: a.to });
+    if (!paths.length) { console.log(c.yellow(`No archived pages found for ${a.oldDomain}.`)); return 1; }
+    writeStarterMap(a.out, paths, mode);
+    console.log(`${paths.length} legacy URLs from the Wayback Machine → ${a.out} (mode: ${mode})`);
+    console.log(c.dim(`Next: cutovergate probe --map ${a.out} --origin https://${a.oldDomain.replace(/^https?:\/\//, '')} --domain <new host> --check-targets`));
+    return 0;
   }
 
   if (cmd === 'files') {

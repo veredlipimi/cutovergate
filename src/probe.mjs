@@ -102,7 +102,18 @@ export function classify(rule, t, { origin, siteHosts, accept, checkTargets }) {
   const finalHop = t.hops.at(-1);
   const finalUrl = comparable(finalHop.url, origin, hosts);
 
-  if (rule.to === '*') return { ...base, result: 'REDIRECT_OK', detail: `→ ${firstTarget}`, actual: firstTarget };
+  if (rule.to === '*') {
+    // Any target is fine — except the homepage catch-all for a deep page (a soft 404) or a broken landing page.
+    const landed = t.hops.length > 2 ? finalUrl : firstTarget;
+    const fromPath = toPath(rule.from);
+    if ((landed === '/' || /^https?:\/\/[^/]+\/?$/.test(landed || '')) && fromPath !== '/') {
+      return { ...base, result: 'WRONG_TARGET', detail: `→ ${landed} — deep page redirected to the homepage (catch-all; search engines treat this as a soft 404)`, actual: landed };
+    }
+    if (checkTargets && t.final && !t.error && !t.tooManyHops && (t.final.status < 200 || t.final.status >= 300)) {
+      return { ...base, result: 'TARGET_BROKEN', detail: `→ ${landed}, which answers HTTP ${t.final.status}`, actual: landed };
+    }
+    return { ...base, result: 'REDIRECT_OK', detail: `→ ${landed}${t.hops.length > 2 ? ` (${t.hops.length - 1} hops)` : ''}`, actual: landed };
+  }
 
   const expected = isAbsolute(rule.to) ? comparable(rule.to, origin, hosts) : toPath(rule.to);
   const direct = sameTarget(firstTarget, expected);

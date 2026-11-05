@@ -168,6 +168,18 @@ cutovergate qa --map map.csv --candidates "staging=…,live=…" --fingerprint "
 
 The agent is found at `--agent`, `$WEB_QA_AGENT` or `~/.claude/skills/web-qa-agent`. The link works the other way too: when CutoverGate is installed, the agent's own redirect check uses it as its engine, so both tools always classify a redirect the same way.
 
+### `harvest`: no redirect map? Build one from the archive
+
+```bash
+cutovergate harvest --old-domain old-shop.example --out map.csv --mode any --limit 150
+cutovergate probe --map map.csv --origin https://old-shop.example --domain www.new-shop.example --check-targets
+```
+
+`harvest` pulls the old site's pages from the Wayback Machine, leaving out assets, feeds, admin paths and tracking parameters.
+
+- `--mode same-path` is for a pure domain move, where the same path is expected on the new domain.
+- `--mode any` is for a platform change. Any target is accepted, unless it is the homepage (a soft 404) or a broken page.
+
 ### `files`: are linked documents still there?
 
 ```bash
@@ -184,7 +196,7 @@ CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurr
 ## Tests
 
 ```bash
-npm test     # 21 tests against local mock sites, covering every result type, gate rule, exception rule and CLI exit code
+npm test     # 23 tests against local mock sites, covering every result type, gate rule, exception rule and CLI exit code
 ```
 
 ## Credits
