@@ -23,6 +23,12 @@ export const ROUTES = {
   '/old-abs': R(301, 'ABS:/new-abs'),
   '/old-query?id=7': R(301, '/new-query'),
   '/blog/a': R(301, '/posts/a'), '/blog/b': R(301, '/posts/b'),
+  // a slug ending in "?": the platform only matches the encoded spelling (the raw "?" arrives stripped and 404s)
+  '/what-is-a-sitemap%3F': R(301, '/articles/sitemap'),
+  // both spellings handled
+  '/how-to-save%3F': R(301, '/articles/save'), '/how-to-save': R(301, '/articles/save'),
+  // "#" in a slug: only the encoded spelling can be redirected
+  '/faq%23rates': R(301, '/help/rates'),
   // trailing slash dropped before rule matching
   '/legacy/page-a/': R(301, '/legacy/page-a'), '/legacy/page-b/': R(301, '/legacy/page-b'),
   '/docs/x': R(301, '/wrong-docs/x'), '/docs/y': R(301, '/wrong-docs/y'), '/docs/z': R(301, '/wrong-docs/z'),

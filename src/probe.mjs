@@ -148,7 +148,7 @@ export async function probeRules(rules, opts) {
     const t = await trace(url, { timeoutMs, maxHops: followFor });
     const verdict = classify(rule, t, opts);
     onProgress?.(++done, rules.length);
-    return { from: rule.from, to: rule.to, expectedStatus: rule.status, group: rule.group, note: rule.note, line: rule.line, url, ...verdict };
+    return { from: rule.from, to: rule.to, expectedStatus: rule.status, group: rule.group, note: rule.note, line: rule.line, ...(rule.variantOf ? { variantOf: rule.variantOf } : {}), url, ...verdict };
   }, { delayMs });
 }
 

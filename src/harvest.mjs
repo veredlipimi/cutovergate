@@ -29,7 +29,9 @@ export function cleanPaths(originals, { limit = 150 } = {}) {
     for (const k of [...u.searchParams.keys()]) if (TRACKING.test(k)) u.searchParams.delete(k);
     const path = p.replace(/\/+$/, '') || '/';
     // A query on the homepage is a variant of the homepage, not another legacy page.
-    const search = path === '/' ? '' : (u.searchParams.toString() ? '?' + u.searchParams.toString() : '');
+    // A "?" with nothing after it is part of the slug ("Is it worth it?"), not an empty query: keep it.
+    const slugQ = path !== '/' && /\?$/.test(String(o).split('#')[0]) && !u.searchParams.toString() ? '?' : '';
+    const search = path === '/' ? '' : (u.searchParams.toString() ? '?' + u.searchParams.toString() : slugQ);
     const key = path + search;
     if (seen.has(key.toLowerCase())) continue;
     seen.add(key.toLowerCase());

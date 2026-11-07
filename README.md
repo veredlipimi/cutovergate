@@ -59,9 +59,12 @@ cutovergate preflight --map map.csv --legacy-urls old-sitemap-urls.txt
 | error | `DUPLICATE_SOURCE` | One source maps to two targets. Only one can survive. |
 | error | `SELF_REDIRECT`, `LOOP_IN_MAP` | The rule redirects to itself, or the rules form a loop. |
 | error | `INVALID_SOURCE` | The source is not a path or URL. |
+| error | `FRAGMENT_IN_SOURCE` | The source has a `#`. The part after it never reaches the server, so no redirect can match it; only `%23` can. |
 | warning | `CHAIN_IN_MAP` | A target is also a source, so users get a chain. Point the rule at the final URL. |
 | warning | `VARIANT_CONFLICT` | `/team.htm` and `/team/` point to different pages. |
 | warning | `UNMAPPED_LEGACY_URL` | A known old URL has no rule, so it will 404. |
+| warning | `QUESTION_MARK_SLUG` | The source ends with `?`. Browsers send it without the `?`, encoded links send `%3F`; the rule must match both. |
+| warning | `STRAY_PERCENT` | A `%` not followed by two hex digits. Many servers refuse it with 400. |
 | warning | `QUERY_IN_SOURCE`, `UNENCODED_CHARS`, `TARGET_TOO_LONG`, `UNEXPECTED_STATUS` | Things many platforms handle differently from what you expect. |
 | info | `VARIANT_DUPLICATE`, `DUPLICATE_ROW`, `EXTERNAL_TARGET`, `RETIRED_PAGE`, `ROW_DISABLED` | Expected, but worth knowing. |
 
@@ -188,6 +191,8 @@ cutovergate verify … --notify-slack "$SLACK_WEBHOOK" --notify-teams "$TEAMS_WE
 
 `probe` exits 1 when the gate fails, so it fits straight into CI (see `.github/workflows/redirect-gate.yml`).
 
+**Special characters: one page, two spellings.** A slug that ends in `?` (an article titled "Is it worth it?") is sent by a browser without the `?`, because it starts an empty query. A correctly encoded link sends `%3F`. A `#` never reaches the server at all; only `%23` does. Visitors and search engines arrive with both spellings, so `probe` checks the other spelling as an extra row (`variantOf` in the CSV/JSON). When one spelling works and the other does not, the hint says so. `--no-spelling-variants` turns this off. Pre-flight flags `FRAGMENT_IN_SOURCE` (error: no redirect can ever match the raw form), `QUESTION_MARK_SLUG` and `STRAY_PERCENT` (a `%` that many servers refuse with 400).
+
 **BLOCKED.** When most URLs (80% or more) answer the same 401, 403 or 429 with no redirect, the site is refusing the probe (bot protection or rate limiting). The run is then `BLOCKED`: not tested, never PASS or FAIL. The report says why, the run exits **3**, and it is kept out of history, so it never becomes the baseline for the next delta. Re-run from an allowed network or with `--delay-ms`.
 
 ### `exceptions`: temporary waivers that expire
@@ -269,7 +274,7 @@ CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurr
 ## Tests
 
 ```bash
-npm test     # 40 tests against local mock sites, covering every result type, gate rule, exception rule, triage hint (built-in and custom), harvest noise filter, BLOCKED runs, CLI exit code, suspect changes and Slack/Teams
+npm test     # 43 tests against local mock sites, covering every result type, gate rule, exception rule, triage hint (built-in and custom), harvest noise filter, BLOCKED runs, special-character spellings, CLI exit code, suspect changes and Slack/Teams
 ```
 
 ## Credits

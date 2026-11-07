@@ -9,6 +9,7 @@ import { writeExports } from './report.mjs';
 import { stamp } from './util.mjs';
 import { suspectChanges, needsSuspects } from './changes.mjs';
 import { loadHints } from './hints.mjs';
+import { withOtherSpellings } from './spelling.mjs';
 
 export async function runSite(site, opts = {}) {
   const {
@@ -42,7 +43,9 @@ export async function runSite(site, opts = {}) {
     return { domain, id, at: new Date().toISOString(), skipped: true, reason: `expected phase "${expectPhase}", detected "${detected.phase}"`, checks: detected.checks, preflight: pf.summary };
   }
 
-  const results = await probeRules(pf.rules, { origin: detected.origin, siteHosts, accept, checkTargets, concurrency, timeoutMs, maxHops, delayMs, onProgress });
+  // A source with "?" or "#" in it reaches the site in two spellings: probe both (off with --no-spelling-variants).
+  const toProbe = opts.spellingVariants === false ? pf.rules : withOtherSpellings(pf.rules);
+  const results = await probeRules(toProbe, { origin: detected.origin, siteHosts, accept, checkTargets, concurrency, timeoutMs, maxHops, delayMs, onProgress });
   const gate = evaluateGate(results, loadExceptions(site.exceptions), { strict });
   const run = {
     tool: 'cutovergate', domain, id, at: new Date().toISOString(),

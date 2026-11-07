@@ -5,7 +5,7 @@ import path from 'node:path';
 import { toCsv, writeJson, safeName, c } from './util.mjs';
 import { RESULTS } from './probe.mjs';
 
-const COLUMNS = ['result', 'excepted', 'group', 'from', 'to', 'expectedStatus', 'httpStatus', 'actual', 'hops', 'detail', 'chain', 'note', 'line'];
+const COLUMNS = ['result', 'excepted', 'group', 'from', 'to', 'expectedStatus', 'httpStatus', 'actual', 'hops', 'detail', 'chain', 'variantOf', 'note', 'line'];
 
 export function writeExports(run, outDir) {
   fs.mkdirSync(outDir, { recursive: true });

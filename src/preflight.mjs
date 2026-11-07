@@ -13,6 +13,9 @@ export const PREFLIGHT_CODES = {
   TARGET_TOO_LONG:     { severity: 'warning', text: 'A target path segment is longer than 80 characters.' },
   QUERY_IN_SOURCE:     { severity: 'warning', text: 'Source has a query string — many platforms match on path only.' },
   UNENCODED_CHARS:     { severity: 'warning', text: 'Unencoded spaces or non-ASCII characters in the path — verify the platform stores them the same way.' },
+  FRAGMENT_IN_SOURCE:  { severity: 'error',   text: 'Source contains "#" — everything after it never reaches the server, so no redirect can match it. Only the encoded "%23" form can be redirected; both are probed.' },
+  QUESTION_MARK_SLUG:  { severity: 'warning', text: 'Source ends with "?" — a browser sends it without the "?", an encoded link sends "%3F". Visitors arrive with both spellings; the rule must match both, and both are probed.' },
+  STRAY_PERCENT:       { severity: 'warning', text: '"%" not followed by two hex digits — many servers refuse this with 400 before any rule runs. Encode it as "%25".' },
   UNEXPECTED_STATUS:   { severity: 'warning', text: 'Unusual expected status — use 301/308 for permanent moves, 410 for retired pages.' },
   UNMAPPED_LEGACY_URL: { severity: 'warning', text: 'Known legacy URL with no rule — it will 404 after cutover.' },
   DUPLICATE_ROW:       { severity: 'info',    text: 'Exact duplicate row — harmless, counted once.' },
@@ -55,7 +58,11 @@ export function preflight(rules, { legacyUrls = [], siteHosts = [] } = {}) {
       else if (toP === fromPath) { add('SELF_REDIRECT', r); continue; }
       if (toP && toP.split('?')[0].split('/').some(seg => decodeSafe(seg).length > 80)) add('TARGET_TOO_LONG', r);
     }
-    if (fromPath.includes('?')) add('QUERY_IN_SOURCE', r);
+    const rawPath = String(r.from).split('#')[0];
+    if (String(r.from).includes('#')) add('FRAGMENT_IN_SOURCE', r);
+    if (/\?$/.test(rawPath)) add('QUESTION_MARK_SLUG', r);
+    else if (fromPath.includes('?')) add('QUERY_IN_SOURCE', r);
+    if (/%(?![0-9a-f]{2})/i.test(r.from)) add('STRAY_PERCENT', r);
     if (/[\s]|[^\x00-\x7F]/.test(r.from) || (r.to && /[\s]|[^\x00-\x7F]/.test(r.to))) add('UNENCODED_CHARS', r);
     active.push(r);
   }

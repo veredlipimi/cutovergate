@@ -26,6 +26,7 @@ Commands
               [--fingerprint header:NAME[=VALUE] | body:TEXT]  [--exceptions FILE]
               [--strict] [--check-targets] [--accept 301,308] [--expect-phase live]
               [--hints FILE[,FILE]]   project/site triage hints (and built-ins to switch off)
+              [--no-spelling-variants] don't also probe the other spelling of "?" / "#" in a source
               [--compare-to previous|other-phase] [--domain HOST] [--out DIR]
               [--concurrency 6] [--timeout-ms 20000] [--max-hops 6] [--delay-ms 0] [--quiet]
               [--repo OWNER/NAME [--repo-path DIR] [--github-api URL]]   suspect changes on regressions
@@ -64,6 +65,7 @@ function probeOpts() {
     accept: String(a.accept || '301,308').split(',').map(Number).filter(Boolean),
     strict: !!a.strict, checkTargets: !!a.checkTargets, outDir: a.out || 'cutovergate-runs', historyDir: a.history,
     expectPhase: a.expectPhase, compareTo: a.compareTo || 'previous', fingerprint: a.fingerprint,
+    spellingVariants: !a.noSpellingVariants,
     hints: a.hints ? String(a.hints).split(',').map(s => s.trim()).filter(Boolean) : [],
     changes: a.repo ? { repo: a.repo, path: a.repoPath, api: a.githubApi || 'https://api.github.com', token: process.env.GITHUB_TOKEN } : null,
     onProgress: process.stderr.isTTY && !a.json ? (d, t) => { process.stderr.write(d === t ? '\r\x1b[K' : `\r  probing ${d}/${t}`); } : null,

@@ -28,6 +28,7 @@ before(async () => {
 after(async () => { await site.close(); await old.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 const opts = (extra = {}) => ({ outDir: path.join(tmp, extra.name || 'runs'), timeoutMs: 1500, concurrency: 8, ...extra });
+const writeTmp = (name, text) => { const f = path.join(tmp, name); fs.writeFileSync(f, text); return f; };
 const byFrom = run => Object.fromEntries(run.results.map(r => [r.from, r]));
 
 // ---------------------------------------------------------------- map parsing
@@ -331,6 +332,8 @@ test('harvest: Wayback noise never becomes a legacy URL', () => {
   // tracking stripped, a real query kept
   assert.deepEqual(cleanPaths(['http://old.example/post/?es_p=123', 'http://old.example/post/?ref=x&lang=fr', 'http://old.example/index.php?page_id=7']),
     ['/index.php?page_id=7', '/post/', '/post/?lang=fr']);
+  // a slug that ends in "?" keeps its "?" (it is part of the title, not an empty query)
+  assert.deepEqual(cleanPaths(['http://old.example/blog/is-it-worth-it?']), ['/blog/is-it-worth-it?']);
   // a page whose name only contains "error" is a real page
   assert.deepEqual(cleanPaths(['http://old.example/blog/error-handling-guide/']), ['/blog/error-handling-guide/']);
 });
@@ -646,4 +649,50 @@ test('CLI: a blocked probe exits 3, says why, and does not become a history base
   const json = JSON.parse(fs.readFileSync(path.join(out, fs.readdirSync(out).find(x => x.endsWith('.json'))), 'utf8'));
   assert.equal(json.gate.status, 'BLOCKED'); assert.equal(json.delta, null);
   assert.ok(!fs.existsSync(path.join(out, 'history')) || !fs.readdirSync(path.join(out, 'history', 'redirects')).length, 'no baseline written');
+});
+
+// ---------------------------------------------------------------- special characters: one page, two spellings
+import { otherSpellings, withOtherSpellings } from '../src/spelling.mjs';
+
+test('spelling: a trailing "?" and a "#" each have another spelling a visitor can send', () => {
+  assert.deepEqual(otherSpellings('/is-it-worth-it?'), ['/is-it-worth-it%3F']);
+  assert.deepEqual(otherSpellings('/is-it-worth-it%3F'), ['/is-it-worth-it?']);
+  assert.deepEqual(otherSpellings('/faq#rates'), ['/faq%23rates']);
+  assert.deepEqual(otherSpellings('/plain/page'), []);
+  assert.deepEqual(otherSpellings('/search?q=x'), [], 'a real query string is not a slug');
+  assert.deepEqual(otherSpellings('https://old.example/a?'), [], 'absolute sources are left alone');
+  const rules = withOtherSpellings([{ from: '/a?', to: '/x' }, { from: '/a%3F', to: '/x' }, { from: '/b?', to: '/y' }]);
+  assert.deepEqual(rules.map(r => r.from), ['/a?', '/a%3F', '/b?', '/b%3F'], 'a spelling already in the map is not added twice');
+  assert.equal(rules.at(-1).variantOf, '/b?');
+});
+
+test('pre-flight: "#", a trailing "?" and a stray "%" in a source are flagged', () => {
+  const res = preflight(loadMap(writeTmp('chars.csv', 'from,to\n/faq#rates,/help\n/is-it-worth-it?,/worth-it\n/50%-off,/sale\n/search?q=x,/s\n')));
+  const codes = res.issues.map(i => `${i.code}:${i.from}`);
+  assert.ok(codes.includes('FRAGMENT_IN_SOURCE:/faq#rates'), codes.join());
+  assert.ok(codes.includes('QUESTION_MARK_SLUG:/is-it-worth-it?'));
+  assert.ok(codes.includes('STRAY_PERCENT:/50%-off'));
+  assert.ok(codes.includes('QUERY_IN_SOURCE:/search?q=x'));
+  assert.ok(!codes.includes('QUERY_IN_SOURCE:/is-it-worth-it?'), 'a trailing "?" is a slug, not a query');
+  assert.equal(res.issues.find(i => i.code === 'FRAGMENT_IN_SOURCE').severity, 'error');
+});
+
+test('probe: both spellings are probed; a page that works in only one spelling gets one clear hint', async () => {
+  const f = writeTmp('spelling.csv', 'from,to\n/what-is-a-sitemap?,/articles/sitemap\n/how-to-save?,/articles/save\n/faq#rates,/help/rates\n');
+  const run = await runSite({ map: f, origin: site.url }, opts({ name: 'spelling' }));
+  const r = Object.fromEntries(run.results.map(x => [x.from, x]));
+  // raw "?" arrives stripped → no rule matches; the encoded spelling works
+  assert.equal(r['/what-is-a-sitemap?'].result, 'MISSING');
+  assert.equal(r['/what-is-a-sitemap%3F'].result, 'PASS'); assert.equal(r['/what-is-a-sitemap%3F'].variantOf, '/what-is-a-sitemap?');
+  // both spellings handled → both pass
+  assert.equal(r['/how-to-save?'].result, 'PASS'); assert.equal(r['/how-to-save%3F'].result, 'PASS');
+  // "#": only the encoded spelling can be redirected, and it is
+  assert.equal(r['/faq%23rates'].result, 'PASS');
+  const h = run.taxonomy.hints.find(x => x.id === 'MISSING');
+  assert.equal(h.cause, 'other-spelling');
+  assert.match(h.text, /one spelling of a special character while the other spelling works/);
+  assert.ok(h.from.includes('/what-is-a-sitemap?'));
+  // off switch
+  const off = await runSite({ map: f, origin: site.url }, opts({ name: 'spelling-off', spellingVariants: false }));
+  assert.equal(off.results.length, 3);
 });
