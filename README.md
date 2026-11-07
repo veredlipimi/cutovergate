@@ -113,6 +113,31 @@ Every hop is traced with `redirect: manual`:
 - `.csv`: for a spreadsheet or a status email;
 - `.json`: the full detail, for a ticket.
 
+### When something gets worse: suspect changes and Slack
+
+**Suspect changes.** A regression after a clean run almost always has a cause in between: a config deploy, a routing change, a CMS export. If the redirect config lives in a repository, point CutoverGate at it:
+
+```bash
+GITHUB_TOKEN=… cutovergate probe --map map.csv --origin https://www.example.com \
+  --repo acme/site-config --repo-path redirects
+```
+
+When the delta shows regressions or new failures, the report lists the commits that landed in that repo (optionally only under `--repo-path`) between the previous run and this one, with their PR numbers. Nothing is fetched when nothing got worse. An API problem is shown in the report and never changes the gate. GitHub Enterprise works with `--github-api https://ghe.example.com/api/v3`. In `batch`, each site can set its own `repo` and `repoPath`.
+
+**Slack.** Send the result to a channel through an incoming webhook:
+
+```bash
+cutovergate verify … --notify-slack "$CUTOVERGATE_SLACK_WEBHOOK" --notify-on fail
+```
+
+| `--notify-on` | Posts when |
+|---|---|
+| `fail` (default) | the gate fails, or anything regressed even though the gate passes |
+| `regression` | something that passed before fails now |
+| `always` | every run |
+
+The message carries the gate, the counts, the regressions and failures, the top suspect commits and the high-severity triage hints. `batch` posts one summary for all sites. The webhook can also come from `$CUTOVERGATE_SLACK_WEBHOOK`.
+
 ### The gate
 
 > The release is blocked until **effective failures = 0**.
@@ -196,7 +221,7 @@ CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurr
 ## Tests
 
 ```bash
-npm test     # 23 tests against local mock sites, covering every result type, gate rule, exception rule and CLI exit code
+npm test     # 28 tests against local mock sites, covering every result type, gate rule, exception rule, CLI exit code, suspect changes and Slack
 ```
 
 ## Credits
@@ -219,7 +244,8 @@ MIT © Vered Li
 5. **דלתא:** החל מההרצה השנייה הדוח מציג רגרסיות, כשלים חדשים ומה תוקן.
 6. `verify` רץ אחרי ההעברה ומשווה מול ההרצה האחרונה שלפניה.
 7. `batch` מריץ את הבדיקה על הרבה אתרים בבת אחת, ו-`files` בודק שקבצי PDF ומסמכים מקושרים עדיין זמינים.
-8. `qa` מחבר ל-[web-qa-agent](https://github.com/veredlipimi/web-qa-agent): אחרי שהשער עובר, הסוכן בודק את עמודי היעד עצמם (נגישות, טפסים, RTL, ביצועים), וכך יודעים לא רק שההפניה נכונה אלא גם שהעמוד שמגיעים אליו תקין.
+8. **כשמשהו נשבר:** עם `--repo` הדוח מציג את ה-commits שנכנסו לריפו של ההגדרות בין ההרצה הקודמת לנוכחית, כ"חשודים" לרגרסיה. עם `--notify-slack` נשלחת הודעה לערוץ כשהשער נכשל או כשיש רגרסיה.
+9. `qa` מחבר ל-[web-qa-agent](https://github.com/veredlipimi/web-qa-agent): אחרי שהשער עובר, הסוכן בודק את עמודי היעד עצמם (נגישות, טפסים, RTL, ביצועים), וכך יודעים לא רק שההפניה נכונה אלא גם שהעמוד שמגיעים אליו תקין.
 
 **ייצוא:** דוח HTML עם סינון, קובץ CSV לגיליון או למייל עדכון, וקובץ JSON לכרטיס.
 

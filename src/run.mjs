@@ -7,12 +7,13 @@ import { loadExceptions, evaluateGate, taxonomy } from './gate.mjs';
 import { recordRun } from './history.mjs';
 import { writeExports } from './report.mjs';
 import { stamp } from './util.mjs';
+import { suspectChanges, needsSuspects } from './changes.mjs';
 
 export async function runSite(site, opts = {}) {
   const {
     concurrency = 6, timeoutMs = 20000, maxHops = 6, delayMs = 0,
     accept = [301, 308], strict = false, checkTargets = false,
-    outDir = 'cutovergate-runs', historyDir, expectPhase, compareTo = 'previous', onProgress,
+    outDir = 'cutovergate-runs', historyDir, expectPhase, compareTo = 'previous', onProgress, changes,
   } = opts;
 
   const rules = loadMap(site.map);
@@ -47,6 +48,11 @@ export async function runSite(site, opts = {}) {
     gate, taxonomy: taxonomy(results), results,
   };
   run.delta = recordRun(historyDir || path.join(outDir, 'history', 'redirects'), domain, run, { compareTo });
+  // Something got worse? List what changed in the repo between the two runs.
+  const repo = site.repo || changes?.repo;
+  if (repo && needsSuspects(run.delta)) {
+    run.suspects = await suspectChanges({ ...changes, repo, path: site.repoPath ?? changes?.path, since: run.delta.previousAt, until: run.at });
+  }
   run.files = writeExports(run, outDir);
   return run;
 }

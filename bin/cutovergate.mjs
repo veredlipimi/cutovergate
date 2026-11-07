@@ -12,6 +12,7 @@ import { addException, removeException, loadExceptions, triageExceptions } from 
 import { checkFiles } from '../src/files.mjs';
 import { findAgent, runAgentOnTargets, targetPages } from '../src/agent-bridge.mjs';
 import { harvest, writeStarterMap } from '../src/harvest.mjs';
+import { shouldNotify, runMessage, batchMessage, postSlack, NOTIFY_ON } from '../src/notify.mjs';
 
 const HELP = `CutoverGate ${VERSION} — release gate for website migrations
 
@@ -26,6 +27,8 @@ Commands
               [--strict] [--check-targets] [--accept 301,308] [--expect-phase live]
               [--compare-to previous|other-phase] [--domain HOST] [--out DIR]
               [--concurrency 6] [--timeout-ms 20000] [--max-hops 6] [--delay-ms 0] [--quiet]
+              [--repo OWNER/NAME [--repo-path DIR] [--github-api URL]]   suspect changes on regressions
+              [--notify-slack WEBHOOK] [--notify-on fail|regression|always]
   verify      Post-cutover pass: probe with --expect-phase live --compare-to other-phase
   batch       Run probe for many sites: --sites sites.json [probe options]
   harvest     No map? Build a starter map from the Wayback Machine's copy of the old site
@@ -37,6 +40,10 @@ Commands
               --origin URL (--urls FILE | --pages FILE) [--pattern REGEX] [--json] [--out DIR]
   exceptions  add --file F --path P --reason "…" [--ttl none|7|14|30|90] [--by NAME]
               remove --file F --path P  ·  list --file F
+
+Environment
+  GITHUB_TOKEN               read access for --repo (needed for private repos)
+  CUTOVERGATE_SLACK_WEBHOOK  default for --notify-slack
 
 Exit codes: 0 = gate PASS / no errors · 1 = gate FAIL / errors found · 2 = usage or setup problem
 `;
@@ -54,8 +61,23 @@ function probeOpts() {
     accept: String(a.accept || '301,308').split(',').map(Number).filter(Boolean),
     strict: !!a.strict, checkTargets: !!a.checkTargets, outDir: a.out || 'cutovergate-runs', historyDir: a.history,
     expectPhase: a.expectPhase, compareTo: a.compareTo || 'previous', fingerprint: a.fingerprint,
+    changes: a.repo ? { repo: a.repo, path: a.repoPath, api: a.githubApi || 'https://api.github.com', token: process.env.GITHUB_TOKEN } : null,
     onProgress: process.stderr.isTTY && !a.json ? (d, t) => { process.stderr.write(d === t ? '\r\x1b[K' : `\r  probing ${d}/${t}`); } : null,
   };
+}
+
+function slackTarget() {
+  const url = a.notifySlack === true ? null : (a.notifySlack || process.env.CUTOVERGATE_SLACK_WEBHOOK);
+  const on = a.notifyOn || 'fail';
+  if (!NOTIFY_ON.includes(on)) die(`--notify-on must be one of: ${NOTIFY_ON.join(', ')}`);
+  return url ? { url, on } : null;
+}
+
+async function notify(slack, run) {
+  if (!slack || !shouldNotify(run, slack.on)) return;
+  const res = await postSlack(slack.url, runMessage(run));
+  if (!res.ok) console.error(c.yellow(`  Slack notification failed: ${res.error}`));
+  else if (!a.json) console.log(c.dim('  Slack notified'));
 }
 
 async function main() {
@@ -86,11 +108,13 @@ async function main() {
     if (!a.map) die('--map is required');
     if (!a.origin && !a.candidates) die('--origin or --candidates is required');
     const o = probeOpts();
+    const slack = slackTarget();
     if (cmd === 'verify') { o.expectPhase ||= 'live'; o.compareTo = 'other-phase'; }
     const run = await runSite({ map: a.map, origin: a.origin, candidates: a.candidates, exceptions: a.exceptions, domain: a.domain }, o);
     if (run.skipped) {
       console.log(`\n${c.yellow(c.bold(' NOT ON TARGET '))}  ${run.domain}: ${run.reason}`);
       for (const ch of run.checks || []) console.log(`  ${ch.label.padEnd(12)} ${ch.url}  ${ch.state} ${c.dim(ch.detail || '')}`);
+      await notify(slack, run);
       return 1;
     }
     if (a.json) console.log(JSON.stringify(run, null, 2));
@@ -98,6 +122,7 @@ async function main() {
       printSummary(run, { quiet: !!a.quiet });
       console.log(c.dim(`\n  report: ${run.files.html}\n  csv:    ${run.files.csv}\n  json:   ${run.files.json}`));
     }
+    await notify(slack, run);
     return run.gate.status === 'PASS' ? 0 : 1;
   }
 
@@ -135,12 +160,14 @@ async function main() {
     const dir = path.dirname(path.resolve(a.sites));
     const rel = p => (p && !path.isAbsolute(p) ? path.join(dir, p) : p);
     const o = probeOpts(); o.onProgress = null;
+    const slack = slackTarget();
     const rows = [];
     console.log(`\nBatch: ${sites.length} sites\n`);
     for (const s of sites) {
       const site = { ...s, map: rel(s.map), exceptions: rel(s.exceptions || cfg.exceptions) };
       let run;
-      try { run = await runSite(site, { ...o, fingerprint: s.fingerprint || cfg.fingerprint || o.fingerprint }); }
+      const changes = s.repo ? { ...(o.changes || { api: a.githubApi || 'https://api.github.com', token: process.env.GITHUB_TOKEN }), repo: s.repo, path: s.repoPath } : o.changes;
+      try { run = await runSite(site, { ...o, changes, fingerprint: s.fingerprint || cfg.fingerprint || o.fingerprint }); }
       catch (e) { rows.push({ domain: s.domain || s.map, gate: 'ERROR', detail: e.message }); console.log(`  ${c.red('ERROR'.padEnd(7))} ${s.domain}  ${e.message}`); continue; }
       if (run.skipped) { rows.push({ domain: run.domain, gate: 'SKIPPED', detail: run.reason }); console.log(`  ${c.yellow('SKIP'.padEnd(7))} ${run.domain}  ${c.dim(run.reason)}`); continue; }
       const g = run.gate;
@@ -154,6 +181,11 @@ async function main() {
     writeJson(base + '.json', { at: new Date().toISOString(), sites: rows });
     fs.writeFileSync(base + '.csv', toCsv(rows, ['domain', 'gate', 'phase', 'probed', 'passed', 'effectiveFailures', 'excepted', 'regressions', 'detail', 'report']));
     const pass = rows.filter(r => r.gate === 'PASS').length;
+    const anyRegression = rows.some(r => r.regressions > 0), anyFail = rows.some(r => r.gate !== 'PASS');
+    if (slack && (slack.on === 'always' || (slack.on === 'regression' ? anyRegression : anyFail || anyRegression))) {
+      const res = await postSlack(slack.url, batchMessage(rows));
+      if (!res.ok) console.error(c.yellow(`  Slack notification failed: ${res.error}`));
+    }
     console.log(`\n  ${pass}/${rows.length} sites pass · ${rows.filter(r => r.gate === 'FAIL').length} fail · ${rows.filter(r => r.gate === 'SKIPPED').length} skipped\n  ${c.dim(base + '.csv')}`);
     return rows.every(r => r.gate === 'PASS') ? 0 : 1;
   }

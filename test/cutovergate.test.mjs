@@ -327,3 +327,124 @@ test('"*" rules: a deep page sent to the homepage is a gap; a broken landing pag
   assert.equal(r['/old-broken'].result, 'TARGET_BROKEN');
   assert.equal(r['/old-any'].result, 'REDIRECT_OK');
 });
+
+// ---------------------------------------------------------------- suspect changes + Slack
+import http from 'node:http';
+import { parseRepo, describeCommit, suspectChanges } from '../src/changes.mjs';
+import { shouldNotify, runMessage, batchMessage } from '../src/notify.mjs';
+
+/** A fake GitHub API and Slack webhook in one server; records every request. */
+function fakeServices() {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', d => { body += d; });
+    req.on('end', () => {
+      seen.push({ method: req.method, url: req.url, headers: req.headers, body });
+      const u = new URL(req.url, 'http://x');
+      if (u.pathname === '/repos/acme/site-config/commits') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify([
+          { sha: 'a1b2c3d4e5', html_url: 'https://gh.test/acme/site-config/commit/a1b2c3d', commit: { message: 'Merge pull request #42 from acme/strip-slash\n\nNormalize trailing slashes', author: { name: 'Dana' }, committer: { date: '2026-11-07T10:00:00Z' } } },
+          { sha: 'f6e5d4c3b2', html_url: 'https://gh.test/acme/site-config/commit/f6e5d4c', commit: { message: 'Update newsletter redirects (#41)', author: { name: 'Omer' }, committer: { date: '2026-11-06T09:00:00Z' } } },
+        ]));
+      }
+      if (u.pathname.startsWith('/repos/')) { res.writeHead(404); return res.end('{}'); }
+      if (u.pathname === '/slack') { res.writeHead(200); return res.end('ok'); }
+      res.writeHead(404); res.end();
+    });
+  });
+  return new Promise(r => server.listen(0, '127.0.0.1', () => r({ url: `http://127.0.0.1:${server.address().port}`, seen, close: () => new Promise(x => { server.closeAllConnections?.(); server.close(x); }) })));
+}
+
+test('changes: repo spec and commit titles are parsed', () => {
+  assert.deepEqual(parseRepo('acme/site-config'), { owner: 'acme', name: 'site-config' });
+  assert.deepEqual(parseRepo('https://github.com/acme/site-config.git'), { owner: 'acme', name: 'site-config' });
+  assert.equal(parseRepo('not a repo'), null);
+  assert.deepEqual(describeCommit('Merge pull request #42 from a/b\n\nbody'), { title: 'Merge pull request #42 from a/b', pr: 42 });
+  assert.equal(describeCommit('Fix redirects (#7)').pr, 7);
+  assert.equal(describeCommit('Plain commit').pr, null);
+});
+
+test('changes: a regression lists the commits between the two runs; nothing is fetched on a clean run', async () => {
+  const gh = await fakeServices();
+  try {
+    const hist = path.join(tmp, 'suspects-history');
+    const m1 = path.join(tmp, 's1.csv'), m2 = path.join(tmp, 's2.csv');
+    fs.writeFileSync(m1, 'from,to\n/old-pass,/new-pass\n');
+    fs.writeFileSync(m2, 'from,to\n/old-pass,/changed\n');
+    const changes = { repo: 'acme/site-config', path: 'redirects', api: gh.url, token: 't0ken' };
+    const o = opts({ name: 'suspects', historyDir: hist, changes });
+    const r1 = await runSite({ map: m1, origin: site.url, domain: 'sus.example.test' }, o);
+    assert.equal(r1.suspects, undefined, 'first run: no delta, no lookup');
+    const r1b = await runSite({ map: m1, origin: site.url, domain: 'sus.example.test' }, o);
+    assert.equal(r1b.suspects, undefined, 'nothing got worse: no lookup');
+    assert.equal(gh.seen.length, 0);
+
+    const r2 = await runSite({ map: m2, origin: site.url, domain: 'sus.example.test' }, o);
+    assert.equal(r2.delta.regressions.length, 1);
+    assert.equal(r2.suspects.error, null);
+    assert.deepEqual(r2.suspects.commits.map(c => [c.short, c.pr, c.author]), [['a1b2c3d', 42, 'Dana'], ['f6e5d4c', 41, 'Omer']]);
+    const q = new URL(gh.seen[0].url, 'http://x').searchParams;
+    assert.equal(q.get('since'), r1b.at, 'window starts at the previous run');
+    assert.equal(q.get('until'), r2.at);
+    assert.equal(q.get('path'), 'redirects');
+    assert.equal(gh.seen[0].headers.authorization, 'Bearer t0ken');
+    const html = fs.readFileSync(r2.files.html, 'utf8');
+    assert.match(html, /Changes in acme\/site-config\/redirects/);
+    assert.match(html, /Merge pull request #42/);
+    assert.equal(r2.gate.status, 'FAIL');
+  } finally { await gh.close(); }
+});
+
+test('changes: an API problem is reported, never breaks the run', async () => {
+  const gh = await fakeServices();
+  try {
+    const s = await suspectChanges({ repo: 'acme/private', since: '2026-11-01T00:00:00Z', until: '2026-11-02T00:00:00Z', api: gh.url });
+    assert.match(s.error, /404.*GITHUB_TOKEN/);
+    assert.deepEqual(s.commits, []);
+    const bad = await suspectChanges({ repo: 'nope', since: 'x', until: 'y', api: gh.url });
+    assert.match(bad.error, /not a repository/);
+  } finally { await gh.close(); }
+});
+
+test('slack: when to notify, and what the message says', () => {
+  const run = (status, regressions = []) => ({
+    domain: 'www.example.test', phase: 'live', gate: { status, strict: false, probed: 10, passed: status === 'PASS' ? 10 : 8, excepted: 0, effectiveFailures: status === 'PASS' ? 0 : 2 },
+    delta: { previousRun: 'r1', regressions, added: [], fixed: [] },
+    results: status === 'PASS' ? [] : [{ from: '/a', ok: false, result: 'MISSING', detail: 'HTTP 404' }, { from: '/b', ok: false, result: 'WRONG_TARGET' }],
+    taxonomy: { hints: [] },
+    suspects: { repo: 'acme/site-config', path: null, commits: [{ short: 'a1b2c3d', title: 'Merge pull request #42', author: 'Dana', url: 'https://gh.test/c' }] },
+  });
+  const reg = [{ from: '/a', was: 'PASS', result: 'MISSING' }];
+  assert.equal(shouldNotify(run('PASS'), 'fail'), false);
+  assert.equal(shouldNotify(run('FAIL'), 'fail'), true);
+  assert.equal(shouldNotify(run('PASS', reg), 'fail'), true, 'a regression always counts');
+  assert.equal(shouldNotify(run('FAIL'), 'regression'), false);
+  assert.equal(shouldNotify(run('PASS'), 'always'), true);
+  const text = runMessage(run('FAIL', reg)).text;
+  assert.match(text, /gate \*FAIL\*/);
+  assert.match(text, /`\/a` PASS → MISSING/);
+  assert.match(text, /`\/b` WRONG_TARGET/);
+  assert.ok(!/`\/a` MISSING/.test(text), 'a regression is not listed twice');
+  assert.match(text, /<https:\/\/gh\.test\/c\|a1b2c3d>/);
+  assert.match(batchMessage([{ domain: 'a', gate: 'PASS' }, { domain: 'b', gate: 'FAIL', regressions: 2 }]).text, /1\/2 sites pass[\s\S]*\*b\* FAIL · 2 regressions/);
+});
+
+test('CLI: --notify-slack posts on a failing gate and stays quiet on a pass', async () => {
+  const hook = await fakeServices();
+  const run = args => new Promise(r => execFile(process.execPath, [cli, ...args], { env: { ...process.env, NO_COLOR: '1' } }, (e, out, err) => r({ code: e ? e.code : 0, out, err })));
+  try {
+    const good = path.join(tmp, 'slack-good.csv'), bad = path.join(tmp, 'slack-bad.csv');
+    fs.writeFileSync(good, 'from,to\n/old-pass,/new-pass\n');
+    fs.writeFileSync(bad, 'from,to\n/old-missing,/x\n');
+    const base = ['--origin', site.url, '--out', path.join(tmp, 'slack-runs'), '--notify-slack', `${hook.url}/slack`, '--quiet'];
+    assert.equal((await run(['probe', '--map', good, ...base])).code, 0);
+    assert.equal(hook.seen.length, 0);
+    const r = await run(['probe', '--map', bad, ...base]);
+    assert.equal(r.code, 1);
+    assert.equal(hook.seen.length, 1);
+    assert.match(JSON.parse(hook.seen[0].body).text, /gate \*FAIL\*[\s\S]*\/old-missing/);
+    assert.equal((await run(['probe', '--map', good, ...base, '--notify-on', 'sometimes'])).code, 2);
+  } finally { await hook.close(); }
+});

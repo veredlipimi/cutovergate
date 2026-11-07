@@ -55,6 +55,8 @@ cutovergate verify --map map.csv --candidates "staging=…,live=…" --fingerpri
 2. The delta compares against the last pre-cutover run. Any regression needs immediate attention.
 3. The gate must pass before you close the migration ticket.
 
+Add `--notify-slack` to the scheduled post-cutover run, so the team hears about a regression the day it happens, not from a traffic report weeks later.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | What to do |
@@ -65,5 +67,6 @@ cutovergate verify --map map.csv --candidates "staging=…,live=…" --fingerpri
 | Most of a group has WRONG_TARGET | The deployed config comes from a different version of the map | Redeploy from the current map |
 | NOT ON TARGET | VPN not connected, DNS not switched, or a wrong fingerprint | Check `--fingerprint` against the response headers |
 | The gate passes but a redirect looks wrong | A WRONG_TARGET was waived | Review the exceptions panel, remove the waiver, fix the target |
-| A regression after a config change | A redeploy overwrote a correct rule | Compare the deploy with the previous run |
+| A regression after a config change | A redeploy overwrote a correct rule | Run with `--repo` to list the commits between the two runs; start with the newest |
+| A regression and no commits in the repo | The change was made outside the repo | Check manual config, the CMS and the CDN rules |
 | Many ERRORs | Rate limiting or a firewall | Lower `--concurrency`, add `--delay-ms`, re-run with `--strict` |
