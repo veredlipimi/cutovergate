@@ -25,12 +25,14 @@ Commands
               --map FILE  (--origin URL | --candidates "staging=URL,live=URL")
               [--fingerprint header:NAME[=VALUE] | body:TEXT]  [--exceptions FILE]
               [--strict] [--check-targets] [--accept 301,308] [--expect-phase live]
+              [--hints FILE[,FILE]]   project/site triage hints (and built-ins to switch off)
               [--compare-to previous|other-phase] [--domain HOST] [--out DIR]
               [--concurrency 6] [--timeout-ms 20000] [--max-hops 6] [--delay-ms 0] [--quiet]
               [--repo OWNER/NAME [--repo-path DIR] [--github-api URL]]   suspect changes on regressions
               [--notify-slack WEBHOOK] [--notify-teams WEBHOOK] [--notify-on fail|regression|always]
   verify      Post-cutover pass: probe with --expect-phase live --compare-to other-phase
   batch       Run probe for many sites: --sites sites.json [probe options]
+              sites.json may set "hints" for all sites and per site
   harvest     No map? Build a starter map from the Wayback Machine's copy of the old site
               --old-domain HOST --out map.csv [--mode same-path|any] [--limit 150] [--from YYYY] [--to YYYY]
               same-path = domain move (old path → same path); any = platform change (any working, non-homepage target)
@@ -62,6 +64,7 @@ function probeOpts() {
     accept: String(a.accept || '301,308').split(',').map(Number).filter(Boolean),
     strict: !!a.strict, checkTargets: !!a.checkTargets, outDir: a.out || 'cutovergate-runs', historyDir: a.history,
     expectPhase: a.expectPhase, compareTo: a.compareTo || 'previous', fingerprint: a.fingerprint,
+    hints: a.hints ? String(a.hints).split(',').map(s => s.trim()).filter(Boolean) : [],
     changes: a.repo ? { repo: a.repo, path: a.repoPath, api: a.githubApi || 'https://api.github.com', token: process.env.GITHUB_TOKEN } : null,
     onProgress: process.stderr.isTTY && !a.json ? (d, t) => { process.stderr.write(d === t ? '\r\x1b[K' : `\r  probing ${d}/${t}`); } : null,
   };
@@ -173,10 +176,10 @@ async function main() {
     const rows = [];
     console.log(`\nBatch: ${sites.length} sites\n`);
     for (const s of sites) {
-      const site = { ...s, map: rel(s.map), exceptions: rel(s.exceptions || cfg.exceptions) };
+      const site = { ...s, map: rel(s.map), exceptions: rel(s.exceptions || cfg.exceptions), hints: [s.hints || []].flat().map(rel) };
       let run;
       const changes = s.repo ? { ...(o.changes || { api: a.githubApi || 'https://api.github.com', token: process.env.GITHUB_TOKEN }), repo: s.repo, path: s.repoPath } : o.changes;
-      try { run = await runSite(site, { ...o, changes, fingerprint: s.fingerprint || cfg.fingerprint || o.fingerprint }); }
+      try { run = await runSite(site, { ...o, hints: [...o.hints, ...[cfg.hints || []].flat().map(rel)], changes, fingerprint: s.fingerprint || cfg.fingerprint || o.fingerprint }); }
       catch (e) { rows.push({ domain: s.domain || s.map, gate: 'ERROR', detail: e.message }); console.log(`  ${c.red('ERROR'.padEnd(7))} ${s.domain}  ${e.message}`); continue; }
       if (run.skipped) { rows.push({ domain: run.domain, gate: 'SKIPPED', detail: run.reason }); console.log(`  ${c.yellow('SKIP'.padEnd(7))} ${run.domain}  ${c.dim(run.reason)}`); continue; }
       const g = run.gate;
@@ -248,4 +251,4 @@ async function main() {
   console.error(HELP); return 2;
 }
 
-main().then(code => process.exit(code ?? 0)).catch(e => { console.error(c.red(e.stack || e.message)); process.exit(2); });
+main().then(code => process.exit(code ?? 0)).catch(e => { console.error(c.red(e.usage ? e.message : (e.stack || e.message))); process.exit(2); });

@@ -8,6 +8,7 @@ import { recordRun } from './history.mjs';
 import { writeExports } from './report.mjs';
 import { stamp } from './util.mjs';
 import { suspectChanges, needsSuspects } from './changes.mjs';
+import { loadHints } from './hints.mjs';
 
 export async function runSite(site, opts = {}) {
   const {
@@ -17,6 +18,9 @@ export async function runSite(site, opts = {}) {
   } = opts;
 
   const rules = loadMap(site.map);
+  // Project-wide hints first, then the site's own; a bad file stops the run before any request.
+  const hintFiles = [opts.hints, site.hints].flat().filter(Boolean);
+  const customHints = hintFiles.length ? loadHints(hintFiles) : null;
   const candidates = site.candidates ? (Array.isArray(site.candidates) ? site.candidates : parseCandidates(site.candidates)) : [];
   if (site.origin) candidates.unshift({ label: site.phase || 'given', url: site.origin });
   if (!candidates.length) throw new Error('Give --origin or --candidates');
@@ -45,7 +49,8 @@ export async function runSite(site, opts = {}) {
     map: path.basename(site.map), origin: detected.origin, phase: detected.phase, originChecks: detected.checks,
     accept, strict, checkTargets,
     preflight: { summary: pf.summary, errors: pf.issues.filter(i => i.severity === 'error') },
-    gate, taxonomy: taxonomy(results), results,
+    gate, taxonomy: taxonomy(results, customHints), results,
+    ...(hintFiles.length ? { hintFiles: hintFiles.map(f => path.basename(f)) } : {}),
   };
   run.delta = recordRun(historyDir || path.join(outDir, 'history', 'redirects'), domain, run, { compareTo });
   // Something got worse? List what changed in the repo between the two runs.

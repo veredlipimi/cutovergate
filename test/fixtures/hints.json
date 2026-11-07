@@ -1,0 +1,7 @@
+{
+  "hints": [
+    { "id": "legacy-aspx", "level": "high", "min": 2,
+      "match": { "result": "MISSING", "status": [400], "from": "\\.aspx$" },
+      "text": "{count} of {total} legacy .aspx pages are refused ({examples})." }
+  ]
+}

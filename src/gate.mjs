@@ -3,10 +3,10 @@ import fs from 'node:fs';
 import { RESULTS } from './probe.mjs';
 import { readJson, writeJson } from './util.mjs';
 import { toPath } from './map.mjs';
+import { triageHints } from './hints.mjs';
 
 export const TTL_CHOICES = { none: null, 7: 7, 14: 14, 30: 30, 90: 90 };
 const DAY = 86400000;
-const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
 
 export function loadExceptions(file) {
   if (!file || !fs.existsSync(file)) return [];
@@ -92,34 +92,13 @@ export function evaluateGate(results, exceptionList, { strict = false, now = new
   };
 }
 
-/** Failures grouped by group × result, with triage hints. */
-export function taxonomy(results) {
+/** Failures grouped by group × result, with triage hints (built-in, plus custom ones from a hints file). */
+export function taxonomy(results, customHints = null) {
   const matrix = {};
   for (const r of results) {
     matrix[r.group] ??= { total: 0 };
     matrix[r.group].total++;
     if (!r.ok) matrix[r.group][r.result] = (matrix[r.group][r.result] || 0) + 1;
   }
-  const hints = [];
-  const failing = results.filter(r => !r.ok);
-  for (const [group, row] of Object.entries(matrix)) {
-    if (row.total >= 2 && row.MISSING === row.total) hints.push({ level: 'high', group, text: `Every rule in "${group}" is MISSING — the rules for this group were most likely never deployed, or the deploy step failed.` });
-    else if (row.total >= 3 && (row.WRONG_TARGET || 0) / row.total >= 0.5) hints.push({ level: 'high', group, text: `Most of "${group}" points to the wrong target — the deployed config probably comes from a different version of the map.` });
-  }
-  const missing200 = failing.filter(r => r.result === 'MISSING' && r.httpStatus === 200);
-  if (missing200.length >= 2) hints.push({ level: 'high', text: `${missing200.length} legacy URLs answer 200 with no redirect — the new platform may not be serving this origin yet, or a catch-all route swallows the paths.` });
-  const toHome = failing.filter(r => r.result === 'WRONG_TARGET' && r.actual === '/');
-  if (toHome.length >= 2) hints.push({ level: 'high', text: `${toHome.length} URLs redirect to the homepage — a catch-all rule is overriding specific rules. Search engines treat this as a soft 404.` });
-  const temp = failing.filter(r => r.result === 'WRONG_STATUS' && [302, 303, 307].includes(r.httpStatus));
-  if (temp.length) hints.push({ level: 'medium', text: `${n(temp.length, 'temporary redirect', 'temporary redirects')} (302/307) — use 301/308 so search ranking moves to the new URL.` });
-  const chains = failing.filter(r => r.result === 'CHAIN');
-  if (chains.length) hints.push({ level: 'medium', text: `${n(chains.length, 'redirect chain', 'redirect chains')} — point each rule straight at the final URL.` });
-  const loops = failing.filter(r => r.result === 'LOOP');
-  if (loops.length) hints.push({ level: 'high', text: `${n(loops.length, 'redirect loop', 'redirect loops')} — ${loops.length === 1 ? 'this page is' : 'these pages are'} unreachable.` });
-  const broken = failing.filter(r => r.result === 'TARGET_BROKEN');
-  if (broken.length) hints.push({ level: 'high', text: `${n(broken.length, 'redirect lands', 'redirects land')} on a broken page — the content was not migrated, or the target slug changed.` });
-  const errors = failing.filter(r => r.result === 'ERROR');
-  if (errors.length && errors.length / results.length >= 0.2) hints.push({ level: 'high', text: `${n(errors.length, 'network error', 'network errors')} (${Math.round(100 * errors.length / results.length)}%) — check VPN, DNS, firewall or rate limiting, then re-run. Use --strict for the final gate.` });
-  else if (errors.length) hints.push({ level: 'medium', text: `${n(errors.length, 'network error', 'network errors')} — re-run before trusting the result.` });
-  return { matrix, hints };
+  return { matrix, hints: triageHints(results, matrix, customHints) };
 }

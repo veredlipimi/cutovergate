@@ -1,0 +1,7 @@
+from,to,status,group
+/old-pass,/new-pass,301,pages
+/legacy/page-a/,/pages/a,301,pages
+/legacy/page-b/,/pages/b,301,pages
+/old/about.1.aspx,/about,301,legacy
+/old/team.2.aspx,/team,301,legacy
+/old/contact.3.aspx,/contact,301,legacy
