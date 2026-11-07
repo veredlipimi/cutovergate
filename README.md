@@ -8,6 +8,15 @@ When a site moves to a new platform, the redirect map decides whether years of s
 
 ![Report](docs/report.png)
 
+## Validated on real migrations
+
+- **Against a reference tool:** 224 redirects on 18 live migrated sites. 99.6% agreement with the reference tool, and it caught a real post-launch regression.
+- **On public, documented migrations** (November 2026, read-only GET requests, maps rebuilt from the Wayback Machine). Each run was repeated and gave the same result.
+  - postmarketOS → Nura (`postmarketos.org` → `nura.eco`): 149 of 150 legacy URLs land on a working page. One lands on a 404.
+  - Pure Storage → Everpure, blog (`blog.purestorage.com` → `blog.everpuredata.com`): 107 of 150 land on a working page; 38 land on a broken page and 5 on the homepage, each group with its likely cause.
+
+Details, evidence and how to reproduce: [docs/case-studies.md](docs/case-studies.md).
+
 ## The flow
 
 ```
@@ -271,7 +280,7 @@ Each file is checked with HEAD, falling back to a GET for one byte when HEAD is 
 
 ## Good citizenship
 
-CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurrency`, default 6), and you can add a delay between requests (`--delay-ms`). Every request carries an identifiable User-Agent. Probe only sites you are responsible for.
+CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurrency`, default 6), and you can add a delay between requests (`--delay-ms`). Every request carries an identifiable User-Agent. Probe sites you are responsible for. For public research runs, keep the rate low; the case studies used 3 requests in parallel, 200 ms apart.
 
 ## Tests
 
@@ -281,7 +290,7 @@ npm test     # 47 tests against local mock sites, covering every result type, ga
 
 ## Credits
 
-Built by Vered Li from hands-on experience gating large-scale website migrations. The gate, exception TTL, strict mode, delta and failure taxonomy come from her original site-scanner tool, rebuilt here as a generic open-source project.
+Designed and built by **Vered Li**, Senior QA Lead, from hands-on experience gating large-scale website migrations. The gate, exception TTL, strict mode, delta and failure taxonomy come from her original site-scanner tool, rebuilt here as a generic open-source project. Companion project: [web-qa-agent](https://github.com/veredlipimi/web-qa-agent).
 
 MIT © Vered Li
 
@@ -305,5 +314,7 @@ MIT © Vered Li
 **רמזי טריאז' (hints):** לכל סוג כשל יש רמז אחד ברור, עם סיבת השורש שמסבירה את רוב המקרים, למשל הפניה ברמת דומיין ששומרת את הנתיב, סלאש שמוסר לפני ההתאמה, או סטטוס דחייה אחיד. כל הרמזים המובנים גנריים, ואף אחד מהם לא קשור לאתר או לפלטפורמה מסוימים. ידע ספציפי לפרויקט או לאתר נכתב בקובץ hints משלכם (`--hints`, או `"hints"` ב-`sites.json`), ושם אפשר גם לכבות רמזים מובנים לפי id. רמזים מסבירים כשלים, ולא משנים את השער.
 
 **ייצוא:** דוח HTML עם סינון, קובץ CSV לגיליון או למייל עדכון, וקובץ JSON לכרטיס.
+
+**נבדק על מיגרציות אמיתיות:** ‏224 הפניות ב-18 אתרים חיים (99.6% התאמה לכלי הייחוס), ושתי מיגרציות ציבוריות ומתועדות. הפירוט ב-[docs/case-studies.md](docs/case-studies.md).
 
 **התקנה:** `git clone https://github.com/veredlipimi/cutovergate`. נדרש Node 18 ומעלה, בלי תלויות.
