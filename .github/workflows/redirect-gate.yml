@@ -13,6 +13,10 @@ jobs:
         with: { node-version: 20 }
       - run: node bin/cutovergate.mjs preflight --map examples/map.csv
       - run: node bin/cutovergate.mjs probe --map examples/map.csv --origin "${{ inputs.origin }}" --exceptions examples/exceptions.json --strict --out gate-run
+        env:
+          # Optional: post failures and regressions to Slack and/or Teams (add the secrets to enable)
+          CUTOVERGATE_SLACK_WEBHOOK: ${{ secrets.CUTOVERGATE_SLACK_WEBHOOK }}
+          CUTOVERGATE_TEAMS_WEBHOOK: ${{ secrets.CUTOVERGATE_TEAMS_WEBHOOK }}
       - if: always()
         uses: actions/upload-artifact@v4
         with: { name: redirect-gate-report, path: gate-run }

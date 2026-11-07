@@ -30,6 +30,14 @@ export function printSummary(run, { quiet = false } = {}) {
     lines.push(`  delta vs ${d.previousRun}${d.previousPhase && d.previousPhase !== run.phase ? ` (${d.previousPhase})` : ''}: ` +
       `${d.regressions.length ? c.red(`${d.regressions.length} regressions`) : '0 regressions'} · ${d.added.length} new · ${c.green(`${d.fixed.length} fixed`)}`);
   }
+  if (run.suspects) {
+    const s = run.suspects;
+    if (s.error) lines.push(`  ${c.yellow('⚠')} suspect changes unavailable (${s.repo}): ${s.error}`);
+    else {
+      lines.push(`  changes in ${s.repo}${s.path ? `/${s.path}` : ''} since the previous run: ${s.commits.length}${s.truncated ? '+' : ''} commits`);
+      for (const k of s.commits.slice(0, 5)) lines.push(`    ${c.cyan(k.short)} ${k.title}${k.author ? c.dim(` — ${k.author}`) : ''}`);
+    }
+  }
   for (const h of run.taxonomy.hints) lines.push(`  ${h.level === 'high' ? c.red('▲') : c.yellow('●')} ${h.text}`);
   for (const e of run.gate.exceptions.expiringSoon) lines.push(`  ${c.yellow('⚠')} exception for ${e.path} expires ${e.expires}`);
   for (const e of run.gate.exceptions.invalid) lines.push(`  ${c.yellow('⚠')} exception ignored (${e.problem}): ${e.path || '?'}`);
@@ -45,6 +53,14 @@ export function printSummary(run, { quiet = false } = {}) {
 }
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+function suspects(s) {
+  if (!s) return '';
+  const where = `${esc(s.repo)}${s.path ? `/${esc(s.path)}` : ''}`;
+  if (s.error) return `<div class="hint">Suspect changes unavailable (${where}): ${esc(s.error)}</div>`;
+  if (!s.commits.length) return `<div class="muted" style="margin-top:8px">No commits in ${where} between the two runs — look outside the repo (manual config, CMS, CDN).</div>`;
+  return `<details open><summary>Changes in ${where} since the previous run <b>${s.commits.length}${s.truncated ? '+' : ''}</b></summary><ul>${s.commits.map(k => `<li><a href="${esc(k.url)}"><code>${esc(k.short)}</code></a> ${esc(k.title)} <span class="muted">${esc(k.author)} · ${esc(String(k.date).slice(0, 10))}</span></li>`).join('')}</ul></details>`;
+}
 
 function html(run) {
   const g = run.gate;
@@ -74,7 +90,7 @@ table{width:100%;border-collapse:collapse;background:var(--card)}th,td{text-alig
 .filters{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}.filters button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:4px 12px;cursor:pointer;font:inherit;font-size:12px}.filters button.on{background:var(--ink);color:var(--bg)}
 input[type=search]{width:100%;max-width:340px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:760px){.grid2{grid-template-columns:1fr}}
-details summary{cursor:pointer;padding:4px 0}summary.reg{color:var(--bad);font-weight:700}ul{margin:4px 0 8px;padding-left:18px}
+details summary{cursor:pointer;padding:4px 0}summary.reg{color:var(--bad);font-weight:700}a{color:var(--accent)}ul{margin:4px 0 8px;padding-left:18px}
 button.copy{white-space:nowrap;border:1px solid var(--line);background:none;color:var(--accent);border-radius:6px;font-size:11px;padding:1px 6px;cursor:pointer}
 footer{margin-top:40px;color:var(--muted);font-size:12px}
 </style></head><body><main>
@@ -94,7 +110,7 @@ footer{margin-top:40px;color:var(--muted);font-size:12px}
 ${run.taxonomy.hints.length ? `<h2>Triage</h2>${run.taxonomy.hints.map(h => `<div class="hint ${h.level}">${esc(h.text)}</div>`).join('')}` : ''}
 
 <div class="grid2">
-<section><h2>Delta</h2><div class="card">${d ? `<div class="muted" style="margin-bottom:6px">vs ${esc(d.previousRun)}${d.previousPhase ? ` · ${esc(d.previousPhase)}` : ''}</div>${deltaList('Regressions (was passing → now failing)', d.regressions, 'reg')}${deltaList('New failures', d.added, '')}${deltaList('Fixed', d.fixed, '')}${d.changed.length ? deltaList('Failing, different result', d.changed, '') : ''}` : '<div class="muted">First run on this domain — the delta appears from the second run.</div>'}</div></section>
+<section><h2>Delta</h2><div class="card">${d ? `<div class="muted" style="margin-bottom:6px">vs ${esc(d.previousRun)}${d.previousPhase ? ` · ${esc(d.previousPhase)}` : ''}</div>${deltaList('Regressions (was passing → now failing)', d.regressions, 'reg')}${deltaList('New failures', d.added, '')}${deltaList('Fixed', d.fixed, '')}${d.changed.length ? deltaList('Failing, different result', d.changed, '') : ''}${suspects(run.suspects)}` : '<div class="muted">First run on this domain — the delta appears from the second run.</div>'}</div></section>
 <section><h2>Exceptions</h2><div class="card">
 ${g.exceptions.active.length ? `<ul>${g.exceptions.active.map(e => `<li><code>${esc(e.path)}</code> — ${esc(e.reason)} <span class="muted">${e.expires ? `until ${esc(e.expires)}` : 'no expiry'}${e.used ? '' : ' · not used this run'}</span></li>`).join('')}</ul>` : '<div class="muted">No active exceptions.</div>'}
 ${g.exceptions.expiringSoon.map(e => `<div class="hint">⚠ ${esc(e.path)} expires ${esc(e.expires)}</div>`).join('')}
