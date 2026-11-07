@@ -253,7 +253,9 @@ cutovergate probe --map map.csv --origin https://old-shop.example --domain www.n
 - broken links Wayback recorded (quotes, brackets, spaces in the path);
 - query-only variants of the homepage (`/?ref=…`, `/?ver=…`).
 
-Tracking parameters (`utm_*`, `ref`, `fbclid`, `mkt_tok`…) are removed and the page is kept once; other parameters (`?page_id=7`, `?lang=fr`) are kept.
+Tracking parameters (`utm_*`, `ref`, `fbclid`, `mkt_tok`…) are removed and the page is kept once; other parameters (`?page_id=7`, `?lang=fr`) are kept. A slug that ends in `?` keeps its `?`.
+
+The archive is often busy: a 429, a 5xx or a timeout is retried 3 times with backoff. If it stays down, `harvest` says so in one line and writes nothing.
 
 - `--mode same-path` is for a pure domain move, where the same path is expected on the new domain.
 - `--mode any` is for a platform change. Any target is accepted, unless it is the homepage (a soft 404) or a broken page.
@@ -274,7 +276,7 @@ CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurr
 ## Tests
 
 ```bash
-npm test     # 43 tests against local mock sites, covering every result type, gate rule, exception rule, triage hint (built-in and custom), harvest noise filter, BLOCKED runs, special-character spellings, CLI exit code, suspect changes and Slack/Teams
+npm test     # 44 tests against local mock sites, covering every result type, gate rule, exception rule, triage hint (built-in and custom), harvest noise filter, BLOCKED runs, special-character spellings, CLI exit code, suspect changes and Slack/Teams
 ```
 
 ## Credits

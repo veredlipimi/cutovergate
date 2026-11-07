@@ -42,19 +42,30 @@ export function cleanPaths(originals, { limit = 150 } = {}) {
   return out.slice(0, limit);
 }
 
-export async function harvest(oldDomain, { limit = 150, from, to, timeoutMs = 60000 } = {}) {
+export async function harvest(oldDomain, { limit = 150, from, to, timeoutMs = 60000, retries = 3, backoffMs = 2000, fetchImpl = fetch } = {}) {
   const host = oldDomain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   const qs = new URLSearchParams({ url: `${host}/*`, output: 'json', fl: 'original', filter: 'statuscode:200', collapse: 'urlkey', limit: String(limit * 8) });
   if (from) qs.set('from', from);
   if (to) qs.set('to', to);
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), timeoutMs);
-  try {
-    const res = await fetch(`https://web.archive.org/cdx/search/cdx?${qs}`, { signal: ac.signal, headers: { 'user-agent': USER_AGENT } });
-    if (!res.ok) throw new Error(`Wayback CDX answered HTTP ${res.status}`);
-    const rows = await res.json();
-    return cleanPaths(rows.slice(1).map(r => r[0]), { limit });
-  } finally { clearTimeout(t); }
+  const url = `https://web.archive.org/cdx/search/cdx?${qs}`;
+  // The archive is often busy (429/5xx, timeouts): retry with backoff before giving up.
+  let last = '';
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+      const res = await fetchImpl(url, { signal: ac.signal, headers: { 'user-agent': USER_AGENT } });
+      if (res.ok) return cleanPaths((await res.json()).slice(1).map(r => r[0]), { limit });
+      last = `HTTP ${res.status}`;
+      if (res.status !== 429 && res.status < 500) break; // a 4xx other than 429 will not change on retry
+    } catch (e) {
+      last = e.name === 'AbortError' ? `no answer in ${Math.round(timeoutMs / 1000)}s` : e.message;
+    } finally { clearTimeout(t); }
+    if (attempt < retries) await new Promise(r => setTimeout(r, backoffMs * attempt));
+  }
+  const err = new Error(`The Wayback Machine did not answer for ${host} (${last}, ${retries} attempts). It is often busy; try again in a few minutes. Nothing was written.`);
+  err.usage = true; // an outside service problem: show the message, not a stack trace
+  throw err;
 }
 
 export function writeStarterMap(file, paths, mode) {

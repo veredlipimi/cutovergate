@@ -696,3 +696,18 @@ test('probe: both spellings are probed; a page that works in only one spelling g
   const off = await runSite({ map: f, origin: site.url }, opts({ name: 'spelling-off', spellingVariants: false }));
   assert.equal(off.results.length, 3);
 });
+
+test('harvest: a busy archive is retried; when it stays down, a clear message and no stack trace', async () => {
+  const { harvest } = await import('../src/harvest.mjs');
+  let calls = 0;
+  const flaky = async () => (++calls < 3 ? { ok: false, status: 503 } : { ok: true, json: async () => [['original'], ['http://old.example/about']] });
+  assert.deepEqual(await harvest('old.example', { fetchImpl: flaky, backoffMs: 1 }), ['/about']);
+  assert.equal(calls, 3, 'two 503s, then success');
+  calls = 0;
+  const down = async () => { calls++; return { ok: false, status: 503 }; };
+  await assert.rejects(harvest('old.example', { fetchImpl: down, backoffMs: 1 }), e => e.usage === true && /did not answer.*HTTP 503, 3 attempts/.test(e.message));
+  calls = 0;
+  const notFound = async () => { calls++; return { ok: false, status: 404 }; };
+  await assert.rejects(harvest('old.example', { fetchImpl: notFound, backoffMs: 1 }));
+  assert.equal(calls, 1, 'a 404 is not retried');
+});
