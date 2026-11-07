@@ -41,13 +41,13 @@ A clean migration: one archived post did not make it to the new site.
 
 **Why the 38 land on a broken page**, as CutoverGate groups them:
 
-| Cause | Count | What happens |
-|---|---|---|
-| The old path is kept | 19 | The redirect keeps the path, and that path does not exist on the new blog. **Likely** a domain-level redirect that preserves the path. |
-| Sent to the error page | 9 | The redirect points at the new blog's `/404/` page. **Likely** a fallback for unknown slugs. |
-| Moved under a section that does not exist | 6 | The slug is kept but placed under a new section (`/uncategorized/…`, `/purely-technical/…`), which answers 404. |
-| The target was retired | 2 | The target answers 410 Gone. |
-| No common cause | 2 | |
+| Cause | Count | What happens | Example, verified with curl on 7 November 2026 |
+|---|---|---|---|
+| The old path is kept | 19 | The redirect keeps the path, and that path does not exist on the new blog. **Likely** a domain-level redirect that preserves the path. | `/bytes-ai-data-lifecycle/` → 301 → same path on the new blog → 404 |
+| Sent to the error page | 9 | The redirect points at the new blog's `/404/` page. **Likely** a fallback for unknown slugs. | `/can-pure-make-cloud-storage-better/` → 301 → same path → 301 → `/404/` → 404 |
+| Moved under a section that does not exist | 6 | The slug is kept but placed under a new section (`/uncategorized/…`, `/purely-technical/…`), which answers 404. | Not verified with curl yet |
+| The target was retired | 2 | The target answers 410 Gone. | `/an-annual-company-kick-off-to-remember/` → 301 → same path → 301 → `/uncategorized/…` → 410 |
+| No common cause | 2 | | |
 
 **The 5 that land on the homepage:** a deep article is sent to `/`. For example, `/7-questions-for-dell/` goes through three redirects and ends on the homepage. Verified with curl on 7 November 2026. Search engines treat this as a soft 404.
 
