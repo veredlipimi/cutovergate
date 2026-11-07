@@ -93,13 +93,49 @@ Every hop is traced with `redirect: manual`:
 | `TARGET_BROKEN` | The redirect is right, but the destination page fails (with `--check-targets`). |
 | `ERROR` | Timeout, DNS or network failure. Nothing was verified. |
 
-**Failure taxonomy.** Failures are grouped by group × result, with triage hints:
+**Failure taxonomy.** Failures are grouped by group × result, with **one triage hint per kind of failure**. The hint id is the result type (`MISSING`, `WRONG_TARGET`, `TARGET_BROKEN`, `WRONG_STATUS`, `CHAIN`, `LOOP`, `ERROR`). Each hint names one cause: the one that explains the most rows. If other causes show up in the same rows, they get one short "Also:" clause in that hint, never a hint of their own. The causes describe behaviour any platform can show; none is tied to a site, platform or vendor.
 
-- every rule in a group is MISSING → that group's rules were never deployed;
-- most of a group goes to the wrong target → the deployed config comes from another version of the map;
-- many old URLs answer 200 → the new platform is not serving yet, or a catch-all route swallows the paths;
-- several URLs redirect to the homepage → a catch-all rule overrides specific rules, which search engines treat as a soft 404;
-- many ERRORs → check VPN, DNS or rate limiting before trusting the run.
+| Hint | Causes it can name (the one covering most rows leads) |
+|---|---|
+| `MISSING` | **refused**: the same status (400, 403, 405…) with no redirect, so the platform turns the URLs away before any rule runs and more rules will not help; 401/403/429 are named as possible bot protection · **served-200**: old URLs still answer 200, so the new platform is not serving yet, or a catch-all swallows them · **group-not-deployed**: every rule in a group is MISSING · **shared-pattern**: the URLs share a shape (`*.N.aspx`, `/blog/*`), so one pattern rule may cover them |
+| `WRONG_TARGET` | **catch-all-home**: deep pages go to the homepage (a soft 404) · **trailing-slash-stripped**: a URL ending in `/` is first sent to the same path without the slash, so the specific rule no longer matches · **group-other-map**: most of a group is wrong, so the deployed config comes from another version of the map |
+| `TARGET_BROKEN` | **path-preserved**: a domain-level redirect keeps the old path and lands on a page that does not exist on the new site |
+| `WRONG_STATUS` | **temporary**: 302/307 where a permanent redirect belongs |
+| `CHAIN`, `LOOP`, `ERROR` | one fixed message each |
+
+Every failing row is counted exactly once, so the causes always add up to the hint's total. When the leading cause covers only part of the rows, the hint starts with `[k of N]`, for example:
+
+```
+[3 of 6] Most of "docs" points to the wrong target (3 URLs) — Possible: the deployed config comes from a different version of the map. Also: 2 go to the homepage (Likely a catch-all); 1 with no common cause.
+```
+
+What was observed (a status, a hop, a landing URL) is stated as fact. Why it happened is inferred, so it is labelled **Likely** or **Possible**, in the lead and in the "Also:" clause. When no cause fits, the hint still says what to do (for example "add a rule for each, or retire them with 410").
+
+In the JSON export each hint carries `cause` (the leading cause, or `unspecified`) and `causes`: every cause with its `evidence` (`observed`, `Likely` or `Possible`), `count` and example URLs, so reports and integrations read the breakdown instead of parsing text.
+
+**Your own hints, per project or per site.** What you know about one platform or one project goes in a hints file, not in the code. Pass it with `--hints FILE[,FILE]`, or set `"hints"` in `sites.json` for all sites and per site (site files come last and can override a project hint by id):
+
+```json
+{
+  "disable": ["CHAIN"],
+  "hints": [
+    { "id": "legacy-extension", "level": "high", "min": 2,
+      "match": { "result": "MISSING", "status": [400], "from": "\\.(htm|php)$" },
+      "text": "{count} legacy pages are refused ({examples}). Ask the platform team to enable the legacy-extension handler." }
+  ]
+}
+```
+
+- `match` fields: `result`, `status`, `group` (a value or a list) and `from`, `to`, `actual`, `detail` (case-insensitive regex). All given fields must match.
+- Only failing, non-excepted rows are matched, unless `"includePassing": true`.
+- `min` (default 1) is how many rows must match before the hint appears. `level` is `high`, `medium` or `info`.
+- `text` placeholders: `{count}`, `{total}`, `{percent}`, `{examples}`.
+- A custom hint wins: the failing rows it explains are left out of the built-in hint for that result type, so the same rows never get two explanations.
+- `disable` switches off a built-in hint by its id (a result type).
+- A bad file (unknown field, bad regex, unknown id) stops the run with exit code 2 before any request is sent. It is never skipped silently.
+- See `examples/hints.json`.
+
+Hints explain failures; they never change the gate.
 
 **Delta.** Every run is saved. From the second run on a domain, the delta shows:
 
@@ -179,7 +215,7 @@ This is `probe` with two additions: the run must resolve to the `live` origin, a
 cutovergate batch --sites sites.json --strict
 ```
 
-The table shows, per site: gate, phase, passed/probed, and the first failures. It is also written as CSV and JSON. Sites not yet on the new platform are listed as SKIPPED.
+The table shows, per site: gate, phase, passed/probed, and the first failures. It is also written as CSV and JSON. Sites not yet on the new platform are listed as SKIPPED. A top-level `"hints"` applies to every site; a site's own `"hints"` is added after it.
 
 ### `qa`: the redirect is right, but does the page work?
 
@@ -224,7 +260,7 @@ CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurr
 ## Tests
 
 ```bash
-npm test     # 28 tests against local mock sites, covering every result type, gate rule, exception rule, CLI exit code, suspect changes and Slack/Teams
+npm test     # 37 tests against local mock sites, covering every result type, gate rule, exception rule, triage hint (built-in and custom), CLI exit code, suspect changes and Slack/Teams
 ```
 
 ## Credits
@@ -249,6 +285,8 @@ MIT © Vered Li
 7. `batch` מריץ את הבדיקה על הרבה אתרים בבת אחת, ו-`files` בודק שקבצי PDF ומסמכים מקושרים עדיין זמינים.
 8. **כשמשהו נשבר:** עם `--repo` הדוח מציג את ה-commits שנכנסו לריפו של ההגדרות בין ההרצה הקודמת לנוכחית, כ"חשודים" לרגרסיה. עם `--notify-slack` או `--notify-teams` נשלחת הודעה לערוץ ב-Slack או ב-Teams כשהשער נכשל או כשיש רגרסיה.
 9. `qa` מחבר ל-[web-qa-agent](https://github.com/veredlipimi/web-qa-agent): אחרי שהשער עובר, הסוכן בודק את עמודי היעד עצמם (נגישות, טפסים, RTL, ביצועים), וכך יודעים לא רק שההפניה נכונה אלא גם שהעמוד שמגיעים אליו תקין.
+
+**רמזי טריאז' (hints):** לכל סוג כשל יש רמז אחד ברור, עם סיבת השורש שמסבירה את רוב המקרים, למשל הפניה ברמת דומיין ששומרת את הנתיב, סלאש שמוסר לפני ההתאמה, או סטטוס דחייה אחיד. כל הרמזים המובנים גנריים, ואף אחד מהם לא קשור לאתר או לפלטפורמה מסוימים. ידע ספציפי לפרויקט או לאתר נכתב בקובץ hints משלכם (`--hints`, או `"hints"` ב-`sites.json`), ושם אפשר גם לכבות רמזים מובנים לפי id. רמזים מסבירים כשלים, ולא משנים את השער.
 
 **ייצוא:** דוח HTML עם סינון, קובץ CSV לגיליון או למייל עדכון, וקובץ JSON לכרטיס.
 

@@ -51,7 +51,7 @@ test('map loader accepts aliases, headerless CSV and JSON', () => {
 
 test('logical key groups spelling variants of one page', () => {
   assert.equal(logicalKey('/Contact_Us.htm'), logicalKey('/contact_us/'));
-  assert.equal(logicalKey('/team.cfm'), logicalKey('/team'));
+  assert.equal(logicalKey('/team.php'), logicalKey('/team'));
   assert.notEqual(logicalKey('/team'), logicalKey('/teams'));
 });
 
@@ -129,9 +129,11 @@ test('failure taxonomy groups failures and produces triage hints', () => {
   const t = mainRun.taxonomy;
   assert.equal(t.matrix.shop.MISSING, 2);
   const text = t.hints.map(h => h.text).join('\n');
+  const ids = t.hints.map(h => h.id);
+  assert.equal(new Set(ids).size, ids.length, 'one hint per result type');
   assert.match(text, /Every rule in "shop" is MISSING/);
   assert.match(text, /"docs" points to the wrong target/);
-  assert.match(text, /redirect to the homepage/);
+  assert.match(text, /Also: 2 go to the homepage/, 'a second cause is a clause, not a second hint');
   assert.match(text, /temporary redirect/);
   assert.match(text, /redirect loop/);
   assert.match(text, /on a broken page/);
@@ -467,4 +469,135 @@ test('CLI: --notify-slack and --notify-teams post on a failing gate and stay qui
     assert.match(r.out, /teams notified/);
     assert.equal((await run(['probe', '--map', good, ...base, '--notify-on', 'sometimes'])).code, 2);
   } finally { await hook.close(); }
+});
+
+// ---------------------------------------------------------------- triage hints: one clear hint per failure type
+import { triageHints, parseHints, loadHints, patternKeys, BUILTIN_IDS } from '../src/hints.mjs';
+
+const row = (from, result, extra = {}) => ({ from, to: extra.to ?? '/x', group: extra.group ?? 'g', result, ok: false, httpStatus: extra.status ?? 301, location: extra.location ?? null, actual: extra.actual ?? null, ...extra });
+const only = (hs, id) => { const f = hs.filter(h => h.id === id); assert.equal(f.length, 1, `exactly one ${id} hint`); return f[0]; };
+
+test('hints: built-in ids are the result types — one hint per kind of failure, never two', () => {
+  assert.deepEqual(BUILTIN_IDS, ['MISSING', 'WRONG_TARGET', 'TARGET_BROKEN', 'WRONG_STATUS', 'CHAIN', 'LOOP', 'ERROR']);
+  const results = [
+    ...['/k/a.1.aspx', '/k/b.2.aspx', '/k/c.3.aspx'].map(f => row(f, 'MISSING', { status: 400, group: 'legacy' })),
+    row('/p', 'MISSING', { status: 200 }), row('/q', 'MISSING', { status: 200 }),
+    row('/h1', 'WRONG_TARGET', { actual: '/' }), row('/h2', 'WRONG_TARGET', { actual: '/' }),
+  ];
+  const hs = triageHints(results, { legacy: { total: 3, MISSING: 3 } });
+  assert.deepEqual(hs.map(h => h.id), ['MISSING', 'WRONG_TARGET']);
+  for (const h of hs) assert.equal(h.source, 'builtin');
+});
+
+test('hints MISSING: the cause that explains the most rows leads; others are one short clause', () => {
+  const refused = ['/k/a.1.aspx', '/k/b.2.aspx', '/k/c.3.aspx'].map(f => row(f, 'MISSING', { status: 400, group: 'legacy' }));
+  const h = only(triageHints([...refused, row('/p', 'MISSING', { status: 200 }), row('/q', 'MISSING', { status: 200 })], { legacy: { total: 3, MISSING: 3 } }), 'MISSING');
+  assert.equal(h.cause, 'refused'); assert.equal(h.count, 5);
+  assert.match(h.text, /^\[3 of 5\] 3 legacy URLs answer HTTP 400 with no redirect/, 'the lead says how much it covers');
+  assert.match(h.text, /adding rules will not help/);
+  assert.match(h.text, /Also: 2 answer 200 \(Possible: not served by the new platform yet\)\.$/, 'inferred causes are labelled in the clause too');
+  assert.deepEqual(h.causes.map(c => [c.cause, c.evidence, c.count]), [['refused', 'Possible', 3], ['served-200', 'Possible', 2]]);
+  assert.equal(h.causes.reduce((a, c) => a + c.count, 0), h.count, 'every row counted exactly once');
+  assert.ok(!/never deployed|pattern/.test(h.text), 'refused rows are not also blamed on deploy or a missing pattern rule');
+  // the same shape answering 404 is a deploy problem
+  const h404 = only(triageHints(refused.map(r => ({ ...r, httpStatus: 404 })), { legacy: { total: 3, MISSING: 3 } }), 'MISSING');
+  assert.equal(h404.cause, 'group-not-deployed');
+  // 403 is named as possible bot protection
+  assert.match(only(triageHints([row('/a', 'MISSING', { status: 403 }), row('/b', 'MISSING', { status: 403 })], {}), 'MISSING').text, /Possible: bot protection/);
+});
+
+test('hints MISSING: shared path shape → one pattern rule', () => {
+  assert.deepEqual(patternKeys('/docs/intro.12.aspx'), ['*.N.aspx', '/docs/*']);
+  assert.deepEqual(patternKeys('/contact'), []);
+  const results = ['/p/one.1.aspx', '/q/two.2.aspx', '/r/three.3.aspx', '/solo'].map(f => row(f, 'MISSING', { status: 404 }));
+  const h = only(triageHints(results, {}), 'MISSING');
+  assert.equal(h.cause, 'shared-pattern');
+  assert.match(h.text, /^\[3 of 4\] 3 legacy URLs with no redirect share the pattern "\*\.N\.aspx"/);
+  assert.match(h.text, /Also: 1 with no common cause\./);
+  assert.deepEqual(h.causes.map(c => [c.cause, c.count]), [['shared-pattern', 3], ['unspecified', 1]]);
+  const generic = only(triageHints([row('/a', 'MISSING', { status: 404 })], {}), 'MISSING');
+  assert.equal(generic.cause, 'unspecified'); assert.match(generic.text, /^1 legacy URL has no redirect/, 'no [k of N] when one cause covers all');
+  assert.match(generic.text, /add a rule for each, or retire them with 410/);
+  assert.deepEqual(generic.causes, [{ cause: 'unspecified', evidence: 'observed', count: 1, from: ['/a'] }]);
+});
+
+test('hints WRONG_TARGET: trailing slash dropped before the rule matches', () => {
+  const h = only(triageHints([row('/section/page/', 'WRONG_TARGET', { to: '/page', location: '/section/page', actual: '/section/page' })], {}), 'WRONG_TARGET');
+  assert.equal(h.cause, 'trailing-slash-stripped'); assert.match(h.text, /without the slash/);
+  // a rule that maps a slash URL to its own slash-less form is not this pattern
+  assert.equal(only(triageHints([row('/a/', 'WRONG_TARGET', { to: '/a', location: '/a' })], {}), 'WRONG_TARGET').cause, 'unspecified');
+});
+
+test('hints TARGET_BROKEN: a domain-level redirect that keeps the path is the cause, the rest is a clause', () => {
+  const results = [
+    row('/about-us/', 'TARGET_BROKEN', { to: '*', actual: '/about-us' }),
+    row('/faq', 'TARGET_BROKEN', { to: '*', actual: 'https://new.example/faq' }),
+    row('/team', 'TARGET_BROKEN', { to: '/people', actual: '/people' }),
+  ];
+  const h = only(triageHints(results, {}), 'TARGET_BROKEN');
+  assert.equal(h.cause, 'path-preserved'); assert.equal(h.count, 3);
+  assert.match(h.text, /^\[2 of 3\] 2 redirects keep the old path/); assert.match(h.text, /Likely a domain-level redirect/); assert.match(h.text, /Also: 1 with no common cause\./);
+  assert.equal(h.causes[0].evidence, 'Likely');
+});
+
+test('custom hints: they win — rows they explain leave the built-in hint; disable by result type; site overrides project', () => {
+  const results = [row('/a.php', 'MISSING', { status: 400, group: 'nav' }), row('/b.php', 'MISSING', { status: 400, group: 'nav' }), row('/c', 'MISSING', { status: 404 }),
+    row('/l', 'LOOP'), { ...row('/ok.php', 'PASS'), ok: true }];
+  const custom = parseHints({ disable: ['LOOP'], hints: [
+    { id: 'php', level: 'high', min: 2, match: { result: 'MISSING', status: 400, from: '\\.PHP$', group: 'nav' }, text: '{count}/{total} ({percent}%): {examples}' },
+    { id: 'too-few', min: 5, match: { result: 'MISSING' }, text: 'never shown' },
+    { id: 'all-php', includePassing: true, match: { from: '\\.php$' }, text: '{count} php rows' },
+  ] });
+  const hs = triageHints(results, {}, { disable: new Set(custom.disable), hints: custom.hints });
+  const c = hs.find(h => h.id === 'php');
+  assert.equal(c.source, 'custom'); assert.equal(c.level, 'high');
+  assert.equal(c.text, '2/5 (40%): /a.php, /b.php', 'regex is case-insensitive; group and status filter');
+  assert.ok(!hs.some(h => h.id === 'too-few'));
+  assert.equal(hs.find(h => h.id === 'all-php').text, '3 php rows');
+  const m = only(hs, 'MISSING');
+  assert.equal(m.count, 1, 'only the row no custom hint explained'); assert.deepEqual(m.from, ['/c']);
+  assert.ok(!hs.some(h => h.id === 'LOOP'), 'disabled built-in');
+
+  const proj = path.join(tmp, 'proj-hints.json'), own = path.join(tmp, 'site-hints.json');
+  fs.writeFileSync(proj, JSON.stringify({ disable: ['CHAIN'], hints: [{ id: 'h', text: 'project' }] }));
+  fs.writeFileSync(own, JSON.stringify({ disable: ['LOOP'], hints: [{ id: 'h', text: 'site' }, { id: 'h2', text: 'x' }] }));
+  const merged = loadHints([proj, own]);
+  assert.deepEqual([...merged.disable].sort(), ['CHAIN', 'LOOP']);
+  assert.deepEqual(merged.hints.map(h => `${h.id}:${h.text}`), ['h:site', 'h2:x']);
+});
+
+test('custom hints: a bad file is a clear setup error, never a silent skip', () => {
+  const bad = cfg => assert.throws(() => parseHints(cfg, 'f'));
+  bad({ hints: [{ text: 'no id' }] });
+  bad({ hints: [{ id: 'x' }] });
+  bad({ hints: [{ id: 'x', text: 't', level: 'urgent' }] });
+  bad({ hints: [{ id: 'x', text: 't', match: { path: '/a' } }] });
+  bad({ hints: [{ id: 'x', text: 't', match: { from: '(' } }] });
+  bad({ hints: [{ id: 'x', text: 't', min: 0 }] });
+  bad({ hints: [{ id: 'LOOP', text: 't' }] });
+  bad({ disable: ['NOT_A_HINT'] });
+  assert.throws(() => loadHints(path.join(tmp, 'nope.json')), /not found/);
+});
+
+test('CLI: --hints on a live probe — custom hint, then one built-in hint per remaining failure type; a bad file exits 2', async () => {
+  const out = path.join(tmp, 'cli-hints');
+  const p = await run(['probe', '--map', fx('hints-map.csv'), '--origin', site.url, '--out', out, '--hints', fx('hints.json')]);
+  assert.equal(p.code, 1, p.out);
+  assert.match(p.out, /\[legacy-aspx\] 3 of 6 legacy \.aspx pages are refused/);
+  assert.match(p.out, /without the slash/);
+  assert.ok(!/answer HTTP 400/.test(p.out), 'rows the project hint explains get no second, built-in hint');
+  const json = JSON.parse(fs.readFileSync(fs.readdirSync(out).filter(f => f.endsWith('.json')).map(f => path.join(out, f))[0], 'utf8'));
+  assert.deepEqual(json.hintFiles, ['hints.json']);
+  assert.deepEqual(json.taxonomy.hints.map(h => h.id), ['legacy-aspx', 'WRONG_TARGET']);
+  const html = fs.readFileSync(path.join(out, fs.readdirSync(out).find(f => f.endsWith('.html'))), 'utf8');
+  assert.match(html, /<b>legacy-aspx<\/b>/);
+
+  const badFile = path.join(tmp, 'bad-hints.json'); fs.writeFileSync(badFile, '{"hints":[{"id":"x"}]}');
+  const b = await run(['probe', '--map', fx('hints-map.csv'), '--origin', site.url, '--out', out, '--hints', badFile]);
+  assert.equal(b.code, 2); assert.match(b.out, /needs a "text"/); assert.ok(!/at .*\.mjs/.test(b.out), 'no stack trace');
+});
+
+test('hints MISSING: a single refusal is still a refusal, not "add a rule"', () => {
+  const h = only(triageHints([row('/a.aspx', 'MISSING', { status: 400 })], {}), 'MISSING');
+  assert.equal(h.cause, 'refused'); assert.match(h.text, /^1 legacy URL answers HTTP 400/);
 });

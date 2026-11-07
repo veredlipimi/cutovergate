@@ -1,0 +1,18 @@
+{
+  "disable": [],
+  "hints": [
+    {
+      "id": "legacy-extension",
+      "level": "high",
+      "min": 2,
+      "match": { "result": "MISSING", "status": [400, 404], "from": "\\.(htm|html|php|asp|aspx)$" },
+      "text": "{count} pages with a legacy file extension have no redirect ({examples}). Add one pattern rule for the extension on the new platform."
+    },
+    {
+      "id": "campaign-pages",
+      "level": "info",
+      "match": { "group": "campaigns", "result": ["MISSING", "TARGET_BROKEN"] },
+      "text": "{count} campaign pages fail. Campaigns that ended can be retired with 410 instead of redirected."
+    }
+  ]
+}

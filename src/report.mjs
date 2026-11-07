@@ -38,7 +38,7 @@ export function printSummary(run, { quiet = false } = {}) {
       for (const k of s.commits.slice(0, 5)) lines.push(`    ${c.cyan(k.short)} ${k.title}${k.author ? c.dim(` — ${k.author}`) : ''}`);
     }
   }
-  for (const h of run.taxonomy.hints) lines.push(`  ${h.level === 'high' ? c.red('▲') : c.yellow('●')} ${h.text}`);
+  for (const h of run.taxonomy.hints) lines.push(`  ${h.level === 'high' ? c.red('▲') : c.yellow('●')} ${h.source === 'custom' ? c.dim(`[${h.id}] `) : ''}${h.text}`);
   for (const e of run.gate.exceptions.expiringSoon) lines.push(`  ${c.yellow('⚠')} exception for ${e.path} expires ${e.expires}`);
   for (const e of run.gate.exceptions.invalid) lines.push(`  ${c.yellow('⚠')} exception ignored (${e.problem}): ${e.path || '?'}`);
   if (!quiet) {
@@ -107,7 +107,7 @@ footer{margin-top:40px;color:var(--muted);font-size:12px}
   <div class="card stat"><b style="color:${g.effectiveFailures ? 'var(--bad)' : 'var(--ok)'}">${g.effectiveFailures}</b><span>effective failures (gate)</span></div>
 </div>
 
-${run.taxonomy.hints.length ? `<h2>Triage</h2>${run.taxonomy.hints.map(h => `<div class="hint ${h.level}">${esc(h.text)}</div>`).join('')}` : ''}
+${run.taxonomy.hints.length ? `<h2>Triage</h2>${run.taxonomy.hints.map(h => `<div class="hint ${h.level}">${h.source === 'custom' ? `<b>${esc(h.id)}</b> · ` : ''}${esc(h.text)}</div>`).join('')}` : ''}
 
 <div class="grid2">
 <section><h2>Delta</h2><div class="card">${d ? `<div class="muted" style="margin-bottom:6px">vs ${esc(d.previousRun)}${d.previousPhase ? ` · ${esc(d.previousPhase)}` : ''}</div>${deltaList('Regressions (was passing → now failing)', d.regressions, 'reg')}${deltaList('New failures', d.added, '')}${deltaList('Fixed', d.fixed, '')}${d.changed.length ? deltaList('Failing, different result', d.changed, '') : ''}${suspects(run.suspects)}` : '<div class="muted">First run on this domain — the delta appears from the second run.</div>'}</div></section>

@@ -23,11 +23,15 @@ export const ROUTES = {
   '/old-abs': R(301, 'ABS:/new-abs'),
   '/old-query?id=7': R(301, '/new-query'),
   '/blog/a': R(301, '/posts/a'), '/blog/b': R(301, '/posts/b'),
+  // trailing slash dropped before rule matching
+  '/legacy/page-a/': R(301, '/legacy/page-a'), '/legacy/page-b/': R(301, '/legacy/page-b'),
   '/docs/x': R(301, '/wrong-docs/x'), '/docs/y': R(301, '/wrong-docs/y'), '/docs/z': R(301, '/wrong-docs/z'),
 };
 const DIRECT = {
   '/old-missing': 404, '/old-200': 200, '/retired': 410, '/gone-target': 404,
   '/shop/1': 404, '/shop/2': 404,
+  // legacy paths the platform refuses before any redirect rule runs
+  '/old/about.1.aspx': 400, '/old/team.2.aspx': 400, '/old/contact.3.aspx': 400,
 };
 
 function newPlatform(req, res) {
