@@ -45,7 +45,7 @@ A clean migration: one archived post did not make it to the new site.
 |---|---|---|---|
 | The old path is kept | 19 | The redirect keeps the path, and that path does not exist on the new blog. **Likely** a domain-level redirect that preserves the path. | `/bytes-ai-data-lifecycle/` → 301 → same path on the new blog → 404 |
 | Sent to the error page | 9 | The redirect points at the new blog's `/404/` page. **Likely** a fallback for unknown slugs. | `/can-pure-make-cloud-storage-better/` → 301 → same path → 301 → `/404/` → 404 |
-| Moved under a section that does not exist | 6 | The slug is kept but placed under a new section (`/uncategorized/…`, `/purely-technical/…`), which answers 404. | Not verified with curl yet |
+| Moved under a section that does not exist | 6 | The slug is kept but placed under a new section (`/uncategorized/…`, `/purely-technical/…`), which answers 404. | `/assigning-read-access-to-windows-private-key/` → 301 → same path → 301 → `/uncategorized/…` → 404 |
 | The target was retired | 2 | The target answers 410 Gone. | `/an-annual-company-kick-off-to-remember/` → 301 → same path → 301 → `/uncategorized/…` → 410 |
 | No common cause | 2 | | |
 
