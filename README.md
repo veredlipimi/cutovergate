@@ -103,7 +103,15 @@ Every hop is traced with `redirect: manual`:
 | `WRONG_STATUS` | **temporary**: 302/307 where a permanent redirect belongs |
 | `CHAIN`, `LOOP`, `ERROR` | one fixed message each |
 
-When no cause fits, the hint still says what to do (for example "add a rule for each, or retire them with 410"). The hint's `cause` field (in the JSON export) holds the cause key, or `unspecified`.
+Every failing row is counted exactly once, so the causes always add up to the hint's total. When the leading cause covers only part of the rows, the hint starts with `[k of N]`, for example:
+
+```
+[3 of 6] Most of "docs" points to the wrong target (3 URLs) — Possible: the deployed config comes from a different version of the map. Also: 2 go to the homepage (Likely a catch-all); 1 with no common cause.
+```
+
+What was observed (a status, a hop, a landing URL) is stated as fact. Why it happened is inferred, so it is labelled **Likely** or **Possible**, in the lead and in the "Also:" clause. When no cause fits, the hint still says what to do (for example "add a rule for each, or retire them with 410").
+
+In the JSON export each hint carries `cause` (the leading cause, or `unspecified`) and `causes`: every cause with its `evidence` (`observed`, `Likely` or `Possible`), `count` and example URLs, so reports and integrations read the breakdown instead of parsing text.
 
 **Your own hints, per project or per site.** What you know about one platform or one project goes in a hints file, not in the code. Pass it with `--hints FILE[,FILE]`, or set `"hints"` in `sites.json` for all sites and per site (site files come last and can override a project hint by id):
 

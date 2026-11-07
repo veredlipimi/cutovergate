@@ -493,9 +493,11 @@ test('hints MISSING: the cause that explains the most rows leads; others are one
   const refused = ['/k/a.1.aspx', '/k/b.2.aspx', '/k/c.3.aspx'].map(f => row(f, 'MISSING', { status: 400, group: 'legacy' }));
   const h = only(triageHints([...refused, row('/p', 'MISSING', { status: 200 }), row('/q', 'MISSING', { status: 200 })], { legacy: { total: 3, MISSING: 3 } }), 'MISSING');
   assert.equal(h.cause, 'refused'); assert.equal(h.count, 5);
-  assert.match(h.text, /^3 legacy URLs answer HTTP 400 with no redirect/);
+  assert.match(h.text, /^\[3 of 5\] 3 legacy URLs answer HTTP 400 with no redirect/, 'the lead says how much it covers');
   assert.match(h.text, /adding rules will not help/);
-  assert.match(h.text, /Also: 2 answer 200\.$/);
+  assert.match(h.text, /Also: 2 answer 200 \(Possible: not served by the new platform yet\)\.$/, 'inferred causes are labelled in the clause too');
+  assert.deepEqual(h.causes.map(c => [c.cause, c.evidence, c.count]), [['refused', 'Possible', 3], ['served-200', 'Possible', 2]]);
+  assert.equal(h.causes.reduce((a, c) => a + c.count, 0), h.count, 'every row counted exactly once');
   assert.ok(!/never deployed|pattern/.test(h.text), 'refused rows are not also blamed on deploy or a missing pattern rule');
   // the same shape answering 404 is a deploy problem
   const h404 = only(triageHints(refused.map(r => ({ ...r, httpStatus: 404 })), { legacy: { total: 3, MISSING: 3 } }), 'MISSING');
@@ -510,10 +512,13 @@ test('hints MISSING: shared path shape → one pattern rule', () => {
   const results = ['/p/one.1.aspx', '/q/two.2.aspx', '/r/three.3.aspx', '/solo'].map(f => row(f, 'MISSING', { status: 404 }));
   const h = only(triageHints(results, {}), 'MISSING');
   assert.equal(h.cause, 'shared-pattern');
-  assert.match(h.text, /^3 legacy URLs with no redirect share the pattern "\*\.N\.aspx"/);
+  assert.match(h.text, /^\[3 of 4\] 3 legacy URLs with no redirect share the pattern "\*\.N\.aspx"/);
   assert.match(h.text, /Also: 1 with no common cause\./);
+  assert.deepEqual(h.causes.map(c => [c.cause, c.count]), [['shared-pattern', 3], ['unspecified', 1]]);
   const generic = only(triageHints([row('/a', 'MISSING', { status: 404 })], {}), 'MISSING');
-  assert.equal(generic.cause, 'unspecified'); assert.match(generic.text, /add a rule for each, or retire them with 410/);
+  assert.equal(generic.cause, 'unspecified'); assert.match(generic.text, /^1 legacy URL has no redirect/, 'no [k of N] when one cause covers all');
+  assert.match(generic.text, /add a rule for each, or retire them with 410/);
+  assert.deepEqual(generic.causes, [{ cause: 'unspecified', evidence: 'observed', count: 1, from: ['/a'] }]);
 });
 
 test('hints WRONG_TARGET: trailing slash dropped before the rule matches', () => {
@@ -531,7 +536,8 @@ test('hints TARGET_BROKEN: a domain-level redirect that keeps the path is the ca
   ];
   const h = only(triageHints(results, {}), 'TARGET_BROKEN');
   assert.equal(h.cause, 'path-preserved'); assert.equal(h.count, 3);
-  assert.match(h.text, /^2 redirects keep the old path/); assert.match(h.text, /Also: 1 with no common cause\./);
+  assert.match(h.text, /^\[2 of 3\] 2 redirects keep the old path/); assert.match(h.text, /Likely a domain-level redirect/); assert.match(h.text, /Also: 1 with no common cause\./);
+  assert.equal(h.causes[0].evidence, 'Likely');
 });
 
 test('custom hints: they win — rows they explain leave the built-in hint; disable by result type; site overrides project', () => {

@@ -51,7 +51,7 @@ export const BUILTIN_HINTS = [
     id: 'MISSING', level: 'high',
     causes: [
       {
-        key: 'refused', min: 1, // the status itself is the evidence
+        key: 'refused', min: 1, evidence: 'Possible', // the status itself is observed; why it is refused is not
         pick: rows => largest(groupBy(rows.filter(r => isRefusal(r.httpStatus)), r => r.httpStatus))[1],
         say: sub => {
           const s = sub[0].httpStatus;
@@ -60,28 +60,28 @@ export const BUILTIN_HINTS = [
             : 'the platform refuses them before any redirect rule runs, so adding rules will not help. Possible: route or file-extension validation, or an edge filter. Check one with curl -I and a browser User-Agent.';
           return `${plural(sub.length, 'legacy URL answers', 'legacy URLs answer')} HTTP ${s} with no redirect ${eg(sub)} — ${why}`;
         },
-        short: sub => `${sub.length} answer HTTP ${sub[0].httpStatus}`,
+        short: sub => `${sub.length} answer HTTP ${sub[0].httpStatus} (${[401, 403, 429].includes(sub[0].httpStatus) ? 'Possible: bot protection' : 'Possible: refused before any rule runs'})`,
       },
       {
-        key: 'served-200', min: 1,
+        key: 'served-200', min: 1, evidence: 'Possible',
         pick: rows => rows.filter(r => r.httpStatus === 200),
-        say: sub => `${plural(sub.length, 'legacy URL answers', 'legacy URLs answer')} 200 with no redirect ${eg(sub)} — the new platform may not be serving this origin yet, or a catch-all route swallows the paths.`,
-        short: sub => `${sub.length} answer 200`,
+        say: sub => `${plural(sub.length, 'legacy URL answers', 'legacy URLs answer')} 200 with no redirect ${eg(sub)} — Possible: the new platform is not serving this origin yet, or a catch-all route swallows the paths.`,
+        short: sub => `${sub.length} answer 200 (Possible: not served by the new platform yet)`,
       },
       {
-        key: 'group-not-deployed', min: 2,
+        key: 'group-not-deployed', min: 2, evidence: 'Likely',
         pick: (rows, { matrix }) => rows.filter(r => { const m = matrix[r.group]; return m && m.total >= 2 && m.MISSING === m.total; }),
         say: sub => {
           const groups = [...new Set(sub.map(r => String(r.group)))];
-          return `Every rule in ${quoteList(groups)} is MISSING (${plural(sub.length, 'URL', 'URLs')}) — the rules for ${groups.length === 1 ? 'this group' : 'these groups'} were most likely never deployed, or the deploy step failed.`;
+          return `Every rule in ${quoteList(groups)} is MISSING (${plural(sub.length, 'URL', 'URLs')}) — Likely the rules for ${groups.length === 1 ? 'this group' : 'these groups'} were never deployed, or the deploy step failed.`;
         },
-        short: sub => `${sub.length} in ${quoteList([...new Set(sub.map(r => String(r.group)))])}, never deployed`,
+        short: sub => `${sub.length} in ${quoteList([...new Set(sub.map(r => String(r.group)))])} (Likely never deployed)`,
       },
       {
-        key: 'shared-pattern', min: 3,
+        key: 'shared-pattern', min: 3, evidence: 'Possible',
         pick: rows => { const [key, sub] = largest(groupBy(rows, r => patternKeys(r.from))); return Object.assign(sub, { key }); },
-        say: sub => `${sub.length} legacy URLs with no redirect share the pattern "${sub.key}" ${eg(sub)} — one pattern rule on the platform may cover all of them.`,
-        short: sub => `${sub.length} share "${sub.key}"`,
+        say: sub => `${sub.length} legacy URLs with no redirect share the pattern "${sub.key}" ${eg(sub)} — Possible: one pattern rule on the platform covers all of them.`,
+        short: sub => `${sub.length} share "${sub.key}" (Possible: one pattern rule)`,
       },
     ],
     fallback: rows => `${plural(rows.length, 'legacy URL has', 'legacy URLs have')} no redirect ${eg(rows)} — add a rule for each, or retire them with 410.`,
@@ -90,28 +90,28 @@ export const BUILTIN_HINTS = [
     id: 'WRONG_TARGET', level: 'high',
     causes: [
       {
-        key: 'catch-all-home', min: 2,
+        key: 'catch-all-home', min: 2, evidence: 'Likely',
         pick: rows => rows.filter(r => r.actual === '/'),
-        say: sub => `${sub.length} URLs redirect to the homepage ${eg(sub)} — a catch-all rule is overriding specific rules. Search engines treat this as a soft 404.`,
-        short: sub => `${sub.length} go to the homepage`,
+        say: sub => `${sub.length} URLs redirect to the homepage ${eg(sub)} — Likely a catch-all rule overriding specific rules. Search engines treat this as a soft 404.`,
+        short: sub => `${sub.length} go to the homepage (Likely a catch-all)`,
       },
       {
         // Source ends in "/", the platform drops the slash first, and the specific rule no longer matches.
-        key: 'trailing-slash-stripped', min: 1,
+        key: 'trailing-slash-stripped', min: 1, evidence: 'Possible',
         pick: rows => rows.filter(r => /\/(\?|$)/.test(r.from) && pathOf(r.from) !== '/'
           && r.location && pathOf(r.location) === pathOf(r.from) && !/\/(\?|$)/.test(String(r.location).split('#')[0])
           && pathOf(r.to) !== pathOf(r.from)),
         say: sub => `${plural(sub.length, 'URL', 'URLs')} ending in "/" ${sub.length === 1 ? 'is' : 'are'} first redirected to the same path without the slash, so the specific rule no longer matches ${eg(sub)}. Possible: the platform normalises trailing slashes before matching rules — add the slash-less variant to the map, or match both.`,
-        short: sub => `${sub.length} lose the trailing slash first`,
+        short: sub => `${sub.length} lose the trailing slash first (Possible: slashes normalised before matching)`,
       },
       {
-        key: 'group-other-map', min: 3,
+        key: 'group-other-map', min: 3, evidence: 'Possible',
         pick: (rows, { matrix }) => rows.filter(r => { const m = matrix[r.group]; return m && m.total >= 3 && (m.WRONG_TARGET || 0) / m.total >= 0.5; }),
         say: sub => {
           const groups = [...new Set(sub.map(r => String(r.group)))];
-          return `Most of ${quoteList(groups)} points to the wrong target (${plural(sub.length, 'URL', 'URLs')}) — the deployed config probably comes from a different version of the map.`;
+          return `Most of ${quoteList(groups)} points to the wrong target (${plural(sub.length, 'URL', 'URLs')}) — Possible: the deployed config comes from a different version of the map.`;
         },
-        short: sub => `${sub.length} in ${quoteList([...new Set(sub.map(r => String(r.group)))])}, likely another map version`,
+        short: sub => `${sub.length} in ${quoteList([...new Set(sub.map(r => String(r.group)))])} (Possible: another map version)`,
       },
     ],
     fallback: rows => `${plural(rows.length, 'URL redirects', 'URLs redirect')} somewhere other than the map says ${eg(rows)} — compare the deployed rules with the map.`,
@@ -121,10 +121,10 @@ export const BUILTIN_HINTS = [
     causes: [
       {
         // A domain-level redirect that keeps the path: every old path is sent to the same path on the new site.
-        key: 'path-preserved', min: 2,
+        key: 'path-preserved', min: 2, evidence: 'Likely',
         pick: rows => rows.filter(r => r.actual && pathOf(r.actual) === pathOf(r.from) && pathOf(r.from) !== '/'),
         say: sub => `${sub.length} redirects keep the old path and land on a page that does not exist on the new site ${eg(sub)} — Likely a domain-level redirect that preserves the path. Map these URLs to their new pages, or retire them with 410.`,
-        short: sub => `${sub.length} keep the old path`,
+        short: sub => `${sub.length} keep the old path (Likely a domain-level redirect)`,
       },
     ],
     fallback: rows => `${plural(rows.length, 'redirect lands', 'redirects land')} on a broken page ${eg(rows)} — the content was not migrated, or the target slug changed.`,
@@ -133,7 +133,7 @@ export const BUILTIN_HINTS = [
     id: 'WRONG_STATUS', level: 'medium',
     causes: [
       {
-        key: 'temporary', min: 1,
+        key: 'temporary', min: 1, evidence: 'observed',
         pick: rows => rows.filter(r => [302, 303, 307].includes(r.httpStatus)),
         say: sub => `${plural(sub.length, 'temporary redirect', 'temporary redirects')} (302/307) ${eg(sub)} — use 301/308 so search ranking moves to the new URL.`,
         short: sub => `${sub.length} temporary (302/307)`,
@@ -159,7 +159,11 @@ export const BUILTIN_HINTS = [
 ];
 export const BUILTIN_IDS = BUILTIN_HINTS.map(h => h.id);
 
-/** One hint for one result type: the cause that explains the most rows, plus a short "Also:" for the rest. */
+/**
+ * One hint for one result type: the cause that explains the most rows leads; other causes get one
+ * short "Also:" clause. Every row is counted exactly once, so the causes always add up to the total.
+ * The text starts with "[k of N]" when the leading cause covers only part of the rows.
+ */
 function explain(def, rows, ctx) {
   const found = [];
   let left = rows;
@@ -178,11 +182,14 @@ function explain(def, rows, ctx) {
     if (!left.length) break;
   }
   const level = def.levelFor ? def.levelFor(rows, ctx) : def.level;
-  if (!found.length) return { level, cause: 'unspecified', rows, text: def.fallback(rows, ctx) };
+  const causes = found.map(f => ({ cause: f.cause.key, evidence: f.cause.evidence, count: f.sub.length, from: f.sub.slice(0, 20).map(r => r.from) }));
+  if (left.length) causes.push({ cause: 'unspecified', evidence: 'observed', count: left.length, from: left.slice(0, 20).map(r => r.from) });
+  if (!found.length) return { level, cause: 'unspecified', causes, rows, text: def.fallback(rows, ctx) };
   const [main, ...rest] = found;
   const also = rest.map(f => f.cause.short(f.sub));
-  if (left.length && found.length) also.push(`${left.length} with no common cause`);
-  return { level, cause: main.cause.key, rows, text: main.cause.say(main.sub, ctx) + (also.length ? ` Also: ${also.join('; ')}.` : '') };
+  if (left.length) also.push(`${left.length} with no common cause`);
+  const share = main.sub.length < rows.length ? `[${main.sub.length} of ${rows.length}] ` : '';
+  return { level, cause: main.cause.key, causes, rows, text: share + main.cause.say(main.sub, ctx) + (also.length ? ` Also: ${also.join('; ')}.` : '') };
 }
 
 // ---------------------------------------------------------------- custom hints
