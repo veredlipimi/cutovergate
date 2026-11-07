@@ -188,6 +188,8 @@ cutovergate verify … --notify-slack "$SLACK_WEBHOOK" --notify-teams "$TEAMS_WE
 
 `probe` exits 1 when the gate fails, so it fits straight into CI (see `.github/workflows/redirect-gate.yml`).
 
+**BLOCKED.** When most URLs (80% or more) answer the same 401, 403 or 429 with no redirect, the site is refusing the probe (bot protection or rate limiting). The run is then `BLOCKED`: not tested, never PASS or FAIL. The report says why, the run exits **3**, and it is kept out of history, so it never becomes the baseline for the next delta. Re-run from an allowed network or with `--delay-ms`.
+
 ### `exceptions`: temporary waivers that expire
 
 ```bash
@@ -239,7 +241,14 @@ cutovergate harvest --old-domain old-shop.example --out map.csv --mode any --lim
 cutovergate probe --map map.csv --origin https://old-shop.example --domain www.new-shop.example --check-targets
 ```
 
-`harvest` pulls the old site's pages from the Wayback Machine, leaving out assets, feeds, admin paths and tracking parameters.
+`harvest` pulls the old site's pages from the Wayback Machine. It leaves out what was never a page someone needs redirected:
+
+- assets, feeds, admin and API paths, and `/.well-known/*` endpoints;
+- the old site's own error page (`/404/`, `/not-found`, `/error.html`);
+- broken links Wayback recorded (quotes, brackets, spaces in the path);
+- query-only variants of the homepage (`/?ref=…`, `/?ver=…`).
+
+Tracking parameters (`utm_*`, `ref`, `fbclid`, `mkt_tok`…) are removed and the page is kept once; other parameters (`?page_id=7`, `?lang=fr`) are kept.
 
 - `--mode same-path` is for a pure domain move, where the same path is expected on the new domain.
 - `--mode any` is for a platform change. Any target is accepted, unless it is the homepage (a soft 404) or a broken page.
@@ -260,7 +269,7 @@ CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurr
 ## Tests
 
 ```bash
-npm test     # 37 tests against local mock sites, covering every result type, gate rule, exception rule, triage hint (built-in and custom), CLI exit code, suspect changes and Slack/Teams
+npm test     # 40 tests against local mock sites, covering every result type, gate rule, exception rule, triage hint (built-in and custom), harvest noise filter, BLOCKED runs, CLI exit code, suspect changes and Slack/Teams
 ```
 
 ## Credits

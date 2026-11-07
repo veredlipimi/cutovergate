@@ -48,7 +48,7 @@ Environment
   CUTOVERGATE_SLACK_WEBHOOK  default for --notify-slack
   CUTOVERGATE_TEAMS_WEBHOOK  default for --notify-teams (a Teams Workflows webhook)
 
-Exit codes: 0 = gate PASS / no errors · 1 = gate FAIL / errors found · 2 = usage or setup problem
+Exit codes: 0 = gate PASS / no errors · 1 = gate FAIL / errors found · 2 = usage or setup problem · 3 = BLOCKED (the site refused the probe; not tested)
 `;
 
 const BOOL = ['strict', 'checkTargets', 'json', 'quiet', 'help', 'all', 'force'];
@@ -135,7 +135,7 @@ async function main() {
       console.log(c.dim(`\n  report: ${run.files.html}\n  csv:    ${run.files.csv}\n  json:   ${run.files.json}`));
     }
     await notify(notice, run);
-    return run.gate.status === 'PASS' ? 0 : 1;
+    return run.gate.status === 'PASS' ? 0 : run.gate.status === 'BLOCKED' ? 3 : 1;
   }
 
   if (cmd === 'qa') {
@@ -183,9 +183,9 @@ async function main() {
       catch (e) { rows.push({ domain: s.domain || s.map, gate: 'ERROR', detail: e.message }); console.log(`  ${c.red('ERROR'.padEnd(7))} ${s.domain}  ${e.message}`); continue; }
       if (run.skipped) { rows.push({ domain: run.domain, gate: 'SKIPPED', detail: run.reason }); console.log(`  ${c.yellow('SKIP'.padEnd(7))} ${run.domain}  ${c.dim(run.reason)}`); continue; }
       const g = run.gate;
-      const issues = run.results.filter(r => !r.ok && !r.excepted).slice(0, 3).map(r => `[${r.result}] ${r.from}`).join('; ');
+      const issues = g.blocked ? `blocked: HTTP ${g.blocked.httpStatus} on ${g.blocked.count}/${g.blocked.of}` : run.results.filter(r => !r.ok && !r.excepted).slice(0, 3).map(r => `[${r.result}] ${r.from}`).join('; ');
       rows.push({ domain: run.domain, gate: g.status, phase: run.phase, probed: g.probed, passed: g.passed, effectiveFailures: g.effectiveFailures, excepted: g.excepted, regressions: run.delta?.regressions.length ?? '', report: run.files.html, detail: issues });
-      console.log(`  ${(g.status === 'PASS' ? c.green : c.red)(g.status.padEnd(7))} ${run.domain.padEnd(36)} ${String(run.phase).padEnd(12)} ${g.passed}/${g.probed}  ${issues ? c.dim(issues) : ''}`);
+      console.log(`  ${(g.status === 'PASS' ? c.green : g.status === 'BLOCKED' ? c.yellow : c.red)(g.status.padEnd(7))} ${run.domain.padEnd(36)} ${String(run.phase).padEnd(12)} ${g.passed}/${g.probed}  ${issues ? c.dim(issues) : ''}`);
     }
     const outDir = o.outDir;
     fs.mkdirSync(outDir, { recursive: true });
@@ -194,7 +194,7 @@ async function main() {
     fs.writeFileSync(base + '.csv', toCsv(rows, ['domain', 'gate', 'phase', 'probed', 'passed', 'effectiveFailures', 'excepted', 'regressions', 'detail', 'report']));
     const pass = rows.filter(r => r.gate === 'PASS').length;
     if (notice.targets.length && shouldNotifyBatch(rows, notice.on)) await deliver(notice.targets, batchSummary(rows));
-    console.log(`\n  ${pass}/${rows.length} sites pass · ${rows.filter(r => r.gate === 'FAIL').length} fail · ${rows.filter(r => r.gate === 'SKIPPED').length} skipped\n  ${c.dim(base + '.csv')}`);
+    console.log(`\n  ${pass}/${rows.length} sites pass · ${rows.filter(r => r.gate === 'FAIL').length} fail · ${rows.filter(r => r.gate === 'BLOCKED').length} blocked · ${rows.filter(r => r.gate === 'SKIPPED').length} skipped\n  ${c.dim(base + '.csv')}`);
     return rows.every(r => r.gate === 'PASS') ? 0 : 1;
   }
 

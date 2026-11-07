@@ -314,10 +314,25 @@ test('bridge: target pages are deduped, same-site only and spread across groups'
 // ---------------------------------------------------------------- harvest + "*" rules
 import { cleanPaths } from '../src/harvest.mjs';
 
-test('harvest: keeps pages, drops assets, tracking params and duplicates', () => {
+test('harvest: keeps pages, drops assets and duplicates; tracking params are stripped, the page kept once', () => {
   const out = cleanPaths(['http://old.example/', 'http://old.example/about/', 'http://old.example/about', 'http://old.example/style.css',
-    'http://old.example/wp-json/x', 'http://old.example/blog/post-1?utm_source=x', 'http://old.example/shop/item?id=4', 'http://old.example/feed/']);
-  assert.deepEqual(out, ['/', '/about/', '/shop/item?id=4']);
+    'http://old.example/wp-json/x', 'http://old.example/blog/post-1?utm_source=x', 'http://old.example/blog/post-1', 'http://old.example/shop/item?id=4', 'http://old.example/feed/']);
+  assert.deepEqual(out, ['/', '/about/', '/blog/post-1', '/shop/item?id=4']);
+});
+
+test('harvest: Wayback noise never becomes a legacy URL', () => {
+  const noise = [
+    'http://old.example/.well-known/nodeinfo', 'http://old.example/.well-known/openid-configuration', // protocol endpoints
+    'http://old.example/404/', 'http://old.example/not-found', 'http://old.example/error.html',       // the old site's error page
+    'http://old.example/)', 'http://old.example/2)', 'http://old.example/%22?ref=x', "http://old.example/it's%20here", // broken links
+    'http://old.example/?ref=news.example', 'http://old.example/?ver=3.8.3', 'http://old.example/?Social+Account=x', // homepage variants
+  ];
+  assert.deepEqual(cleanPaths(['http://old.example/', ...noise]), ['/']);
+  // tracking stripped, a real query kept
+  assert.deepEqual(cleanPaths(['http://old.example/post/?es_p=123', 'http://old.example/post/?ref=x&lang=fr', 'http://old.example/index.php?page_id=7']),
+    ['/index.php?page_id=7', '/post/', '/post/?lang=fr']);
+  // a page whose name only contains "error" is a real page
+  assert.deepEqual(cleanPaths(['http://old.example/blog/error-handling-guide/']), ['/blog/error-handling-guide/']);
 });
 
 test('"*" rules: a deep page sent to the homepage is a gap; a broken landing page is a gap', async () => {
@@ -600,4 +615,35 @@ test('CLI: --hints on a live probe — custom hint, then one built-in hint per r
 test('hints MISSING: a single refusal is still a refusal, not "add a rule"', () => {
   const h = only(triageHints([row('/a.aspx', 'MISSING', { status: 400 })], {}), 'MISSING');
   assert.equal(h.cause, 'refused'); assert.match(h.text, /^1 legacy URL answers HTTP 400/);
+});
+
+// ---------------------------------------------------------------- blocked runs
+import { detectBlocked } from '../src/gate.mjs';
+
+test('gate: a site that refuses the probe is BLOCKED (not tested), never PASS or FAIL', () => {
+  const rows = n => Array.from({ length: n }, (_, i) => ({ from: `/p${i}`, result: 'MISSING', httpStatus: 403, location: null, group: 'g' }));
+  const all = rows(10);
+  const g = evaluateGate(all, []);
+  assert.equal(g.status, 'BLOCKED'); assert.equal(g.blocked.httpStatus, 403); assert.equal(g.blocked.count, 10);
+  assert.match(g.blocked.reason, /not tested/);
+  // 7 of 10 refused is below the share: a real result, not a block
+  const mixed = [...rows(7), ...Array.from({ length: 3 }, (_, i) => ({ from: `/ok${i}`, result: 'PASS', httpStatus: 301, location: '/x', group: 'g' }))];
+  assert.equal(evaluateGate(mixed, []).status, 'FAIL');
+  // a 403 that comes with a redirect is not a refusal; too few rows is not a block
+  assert.equal(detectBlocked(rows(10).map(r => ({ ...r, location: '/login' }))), null);
+  assert.equal(detectBlocked(rows(2)), null);
+  // 429 counts too
+  assert.equal(detectBlocked(rows(5).map(r => ({ ...r, httpStatus: 429 }))).httpStatus, 429);
+});
+
+test('CLI: a blocked probe exits 3, says why, and does not become a history baseline', async () => {
+  const f = path.join(tmp, 'blocked.csv');
+  fs.writeFileSync(f, 'from,to\n/blocked-1,/a\n/blocked-2,/b\n/blocked-3,/c\n/blocked-4,/d\n');
+  const out = path.join(tmp, 'cli-blocked');
+  const p = await run(['probe', '--map', f, '--origin', site.url, '--out', out]);
+  assert.equal(p.code, 3, p.out);
+  assert.match(p.out, /GATE BLOCKED/); assert.match(p.out, /refusing the probe/);
+  const json = JSON.parse(fs.readFileSync(path.join(out, fs.readdirSync(out).find(x => x.endsWith('.json'))), 'utf8'));
+  assert.equal(json.gate.status, 'BLOCKED'); assert.equal(json.delta, null);
+  assert.ok(!fs.existsSync(path.join(out, 'history')) || !fs.readdirSync(path.join(out, 'history', 'redirects')).length, 'no baseline written');
 });

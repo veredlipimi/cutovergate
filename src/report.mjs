@@ -20,9 +20,10 @@ export function writeExports(run, outDir) {
 
 export function printSummary(run, { quiet = false } = {}) {
   const g = run.gate;
-  const badge = g.status === 'PASS' ? c.green(c.bold(' GATE PASS ')) : c.red(c.bold(' GATE FAIL '));
+  const badge = g.status === 'PASS' ? c.green(c.bold(' GATE PASS ')) : g.status === 'BLOCKED' ? c.yellow(c.bold(' GATE BLOCKED ')) : c.red(c.bold(' GATE FAIL '));
   const lines = [];
   lines.push('', `${badge}  ${run.domain}  ${c.dim(`origin ${run.origin} · phase ${run.phase}${g.strict ? ' · STRICT' : ''}`)}`);
+  if (g.blocked) lines.push('  ' + c.yellow(g.blocked.reason));
   lines.push(`  probed ${g.probed} · passed ${g.passed} · failed ${g.failures} · excepted ${g.excepted} · ${c.bold(`effective failures ${g.effectiveFailures}`)}`);
   lines.push('  ' + Object.entries(g.counts).map(([k, v]) => `${k} ${v}`).join(' · '));
   if (run.delta) {
@@ -79,7 +80,7 @@ function html(run) {
 main{max-width:1200px;margin:0 auto;padding:24px 16px 64px}h1{font-size:22px;margin:0}h2{font-size:15px;margin:28px 0 10px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
 .head{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
-.gate{font-weight:800;font-size:18px;padding:8px 16px;border-radius:8px}.gate.PASS{background:var(--okbg);color:var(--ok)}.gate.FAIL{background:var(--badbg);color:var(--bad)}
+.gate{font-weight:800;font-size:18px;padding:8px 16px;border-radius:8px}.gate.PASS{background:var(--okbg);color:var(--ok)}.gate.FAIL{background:var(--badbg);color:var(--bad)}.gate.BLOCKED{background:var(--warnbg);color:var(--warn)}
 .badge{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--muted);margin-right:6px}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:14px}.stat b{display:block;font-size:24px}.stat span{color:var(--muted);font-size:12px}
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}.pill.ok{background:var(--okbg);color:var(--ok)}.pill.bad{background:var(--badbg);color:var(--bad)}.pill.exc{background:var(--warnbg);color:var(--warn)}
@@ -97,7 +98,7 @@ footer{margin-top:40px;color:var(--muted);font-size:12px}
 <div class="card head">
   <div><h1>${esc(run.domain)}</h1>
   <div style="margin-top:6px"><span class="badge">phase: ${esc(run.phase)}</span><span class="badge">origin: ${esc(run.origin)}</span>${g.strict ? '<span class="badge">STRICT</span>' : ''}<span class="badge">${esc(run.at)}</span></div></div>
-  <div class="gate ${g.status}">GATE ${g.status}</div>
+  <div class="gate ${g.status}">GATE ${g.status}</div>${g.blocked ? `<div class="hint high">${esc(g.blocked.reason)}</div>` : ''}
 </div>
 <div class="stats">
   <div class="card stat"><b>${g.probed}</b><span>probed</span></div>
