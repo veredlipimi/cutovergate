@@ -28,6 +28,8 @@ const groupBy = (rows, key) => {
   return m;
 };
 const largest = (m) => [...m].sort((a, b) => b[1].length - a[1].length)[0] || [null, []];
+// The same legacy page in its other spelling(s), see spelling.mjs.
+const counterparts = (r, results) => results.filter(o => o !== r && (o.from === r.variantOf || o.variantOf === r.from || (r.variantOf && o.variantOf === r.variantOf)));
 const quoteList = names => names.map(g => `"${g}"`).join(', ');
 
 /**
@@ -50,6 +52,13 @@ export const BUILTIN_HINTS = [
   {
     id: 'MISSING', level: 'high',
     causes: [
+      {
+        // One spelling of "?" / "#" works and the other does not: the rule matches only part of the visitors.
+        key: 'other-spelling', min: 1, evidence: 'Possible',
+        pick: (rows, ctx) => rows.filter(r => counterparts(r, ctx.results).some(o => o.ok)),
+        say: sub => `${plural(sub.length, 'URL fails', 'URLs fail')} in one spelling of a special character while the other spelling works ${eg(sub)} — visitors arrive with both ("?" and "%3F", "%23"). Possible: the platform matches the rule on one spelling only. Add a rule for the failing spelling.`,
+        short: sub => `${sub.length} fail in one spelling of "?" or "#" only`,
+      },
       {
         key: 'refused', min: 1, evidence: 'Possible', // the status itself is observed; why it is refused is not
         pick: rows => largest(groupBy(rows.filter(r => isRefusal(r.httpStatus)), r => r.httpStatus))[1],
@@ -90,6 +99,13 @@ export const BUILTIN_HINTS = [
     id: 'WRONG_TARGET', level: 'high',
     causes: [
       {
+        // One spelling of "?" / "#" works and the other does not: the rule matches only part of the visitors.
+        key: 'other-spelling', min: 1, evidence: 'Possible',
+        pick: (rows, ctx) => rows.filter(r => counterparts(r, ctx.results).some(o => o.ok)),
+        say: sub => `${plural(sub.length, 'URL fails', 'URLs fail')} in one spelling of a special character while the other spelling works ${eg(sub)} — visitors arrive with both ("?" and "%3F", "%23"). Possible: the platform matches the rule on one spelling only. Add a rule for the failing spelling.`,
+        short: sub => `${sub.length} fail in one spelling of "?" or "#" only`,
+      },
+      {
         key: 'catch-all-home', min: 2, evidence: 'Likely',
         pick: rows => rows.filter(r => r.actual === '/'),
         say: sub => `${sub.length} URLs redirect to the homepage ${eg(sub)} — Likely a catch-all rule overriding specific rules. Search engines treat this as a soft 404.`,
@@ -119,6 +135,42 @@ export const BUILTIN_HINTS = [
   {
     id: 'TARGET_BROKEN', level: 'high',
     causes: [
+      {
+        // One spelling of "?" / "#" works and the other does not: the rule matches only part of the visitors.
+        key: 'other-spelling', min: 1, evidence: 'Possible',
+        pick: (rows, ctx) => rows.filter(r => counterparts(r, ctx.results).some(o => o.ok)),
+        say: sub => `${plural(sub.length, 'URL fails', 'URLs fail')} in one spelling of a special character while the other spelling works ${eg(sub)} — visitors arrive with both ("?" and "%3F", "%23"). Possible: the platform matches the rule on one spelling only. Add a rule for the failing spelling.`,
+        short: sub => `${sub.length} fail in one spelling of "?" or "#" only`,
+      },
+      {
+        // The rule (or a fallback) points at the site's own error page instead of the new page.
+        key: 'error-page-target', min: 1, evidence: 'Likely',
+        pick: rows => rows.filter(r => /\/(404|410|not-?found|page-not-found|error)(\.(html?|php|aspx?))?\/?$/i.test(pathOf(r.actual))),
+        say: sub => `${plural(sub.length, 'redirect sends', 'redirects send')} visitors to the site's error page ${eg(sub)} — Likely a fallback that sends unknown slugs to an error page instead of mapping them. Map these URLs to their new pages, or answer 410 on the old URL.`,
+        short: sub => `${sub.length} sent to the error page (Likely a fallback)`,
+      },
+      {
+        // Same slug, but under a new section that does not exist: /post/ → /uncategorized/post/ → 404.
+        key: 'slug-under-new-section', min: 2, evidence: 'Likely',
+        pick: rows => rows.filter(r => {
+          if (/answers HTTP 410\b/.test(r.detail || '')) return false; // an explicit 410 is "retired", not "moved"
+          const from = pathOf(r.from), to = pathOf(r.actual);
+          const slug = from.split('/').filter(Boolean).at(-1);
+          return slug && to !== from && to.endsWith('/' + slug) && to.split('/').length > from.split('/').length;
+        }),
+        say: sub => {
+          const sections = [...new Set(sub.map(r => '/' + pathOf(r.actual).split('/').filter(Boolean)[0] + '/'))].slice(0, 3);
+          return `${sub.length} redirects keep the slug but move it under a section that does not exist on the new site (${sections.join(', ')}) ${eg(sub)} — Likely the new URL pattern adds a category the pages were not published under. Check the real URL of one of these pages and fix the pattern.`;
+        },
+        short: sub => `${sub.length} moved under a section that does not exist`,
+      },
+      {
+        // The target exists in the map but was retired since: it answers 410 Gone.
+        key: 'target-retired', min: 1, evidence: 'observed',
+        pick: rows => rows.filter(r => /answers HTTP 410\b/.test(r.detail || '')),
+        say: sub => `${plural(sub.length, 'redirect points', 'redirects point')} at a page that answers 410 Gone ${eg(sub)} — the target was retired after the rule was written. Point the rule at a live page, or answer 410 on the old URL itself.`,
+        short: sub => `${sub.length} point at a retired page (410)`,
+      },
       {
         // A domain-level redirect that keeps the path: every old path is sent to the same path on the new site.
         key: 'path-preserved', min: 2, evidence: 'Likely',
