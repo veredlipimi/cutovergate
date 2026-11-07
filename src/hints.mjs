@@ -143,6 +143,35 @@ export const BUILTIN_HINTS = [
         short: sub => `${sub.length} fail in one spelling of "?" or "#" only`,
       },
       {
+        // The rule (or a fallback) points at the site's own error page instead of the new page.
+        key: 'error-page-target', min: 1, evidence: 'Likely',
+        pick: rows => rows.filter(r => /\/(404|410|not-?found|page-not-found|error)(\.(html?|php|aspx?))?\/?$/i.test(pathOf(r.actual))),
+        say: sub => `${plural(sub.length, 'redirect sends', 'redirects send')} visitors to the site's error page ${eg(sub)} — Likely a fallback that sends unknown slugs to an error page instead of mapping them. Map these URLs to their new pages, or answer 410 on the old URL.`,
+        short: sub => `${sub.length} sent to the error page (Likely a fallback)`,
+      },
+      {
+        // Same slug, but under a new section that does not exist: /post/ → /uncategorized/post/ → 404.
+        key: 'slug-under-new-section', min: 2, evidence: 'Likely',
+        pick: rows => rows.filter(r => {
+          if (/answers HTTP 410\b/.test(r.detail || '')) return false; // an explicit 410 is "retired", not "moved"
+          const from = pathOf(r.from), to = pathOf(r.actual);
+          const slug = from.split('/').filter(Boolean).at(-1);
+          return slug && to !== from && to.endsWith('/' + slug) && to.split('/').length > from.split('/').length;
+        }),
+        say: sub => {
+          const sections = [...new Set(sub.map(r => '/' + pathOf(r.actual).split('/').filter(Boolean)[0] + '/'))].slice(0, 3);
+          return `${sub.length} redirects keep the slug but move it under a section that does not exist on the new site (${sections.join(', ')}) ${eg(sub)} — Likely the new URL pattern adds a category the pages were not published under. Check the real URL of one of these pages and fix the pattern.`;
+        },
+        short: sub => `${sub.length} moved under a section that does not exist`,
+      },
+      {
+        // The target exists in the map but was retired since: it answers 410 Gone.
+        key: 'target-retired', min: 1, evidence: 'observed',
+        pick: rows => rows.filter(r => /answers HTTP 410\b/.test(r.detail || '')),
+        say: sub => `${plural(sub.length, 'redirect points', 'redirects point')} at a page that answers 410 Gone ${eg(sub)} — the target was retired after the rule was written. Point the rule at a live page, or answer 410 on the old URL itself.`,
+        short: sub => `${sub.length} point at a retired page (410)`,
+      },
+      {
         // A domain-level redirect that keeps the path: every old path is sent to the same path on the new site.
         key: 'path-preserved', min: 2, evidence: 'Likely',
         pick: rows => rows.filter(r => r.actual && pathOf(r.actual) === pathOf(r.from) && pathOf(r.from) !== '/'),

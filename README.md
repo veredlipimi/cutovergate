@@ -102,7 +102,7 @@ Every hop is traced with `redirect: manual`:
 |---|---|
 | `MISSING` | **refused**: the same status (400, 403, 405…) with no redirect, so the platform turns the URLs away before any rule runs and more rules will not help; 401/403/429 are named as possible bot protection · **served-200**: old URLs still answer 200, so the new platform is not serving yet, or a catch-all swallows them · **group-not-deployed**: every rule in a group is MISSING · **shared-pattern**: the URLs share a shape (`*.N.aspx`, `/blog/*`), so one pattern rule may cover them |
 | `WRONG_TARGET` | **catch-all-home**: deep pages go to the homepage (a soft 404) · **trailing-slash-stripped**: a URL ending in `/` is first sent to the same path without the slash, so the specific rule no longer matches · **group-other-map**: most of a group is wrong, so the deployed config comes from another version of the map |
-| `TARGET_BROKEN` | **path-preserved**: a domain-level redirect keeps the old path and lands on a page that does not exist on the new site |
+| `TARGET_BROKEN` | **path-preserved**: a domain-level redirect keeps the old path and lands on a page that does not exist on the new site · **error-page-target**: visitors are sent to the site's error page (`/404/`) · **slug-under-new-section**: the slug is kept but moved under a section that does not exist (`/uncategorized/post/`) · **target-retired**: the target answers 410 Gone |
 | `WRONG_STATUS` | **temporary**: 302/307 where a permanent redirect belongs |
 | `CHAIN`, `LOOP`, `ERROR` | one fixed message each |
 
@@ -276,7 +276,7 @@ CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurr
 ## Tests
 
 ```bash
-npm test     # 44 tests against local mock sites, covering every result type, gate rule, exception rule, triage hint (built-in and custom), harvest noise filter, BLOCKED runs, special-character spellings, CLI exit code, suspect changes and Slack/Teams
+npm test     # 47 tests against local mock sites, covering every result type, gate rule, exception rule, triage hint (built-in and custom), harvest noise filter, BLOCKED runs, special-character spellings, CLI exit code, suspect changes and Slack/Teams
 ```
 
 ## Credits

@@ -711,3 +711,35 @@ test('harvest: a busy archive is retried; when it stays down, a clear message an
   await assert.rejects(harvest('old.example', { fetchImpl: notFound, backoffMs: 1 }));
   assert.equal(calls, 1, 'a 404 is not retried');
 });
+
+test('hints TARGET_BROKEN: a redirect to the error page and to a retired (410) page are named causes', () => {
+  const results = [
+    row('/a/', 'TARGET_BROKEN', { actual: '/404/', detail: '→ /404/, which answers HTTP 404' }),
+    row('/b/', 'TARGET_BROKEN', { actual: '/not-found', detail: '→ /not-found, which answers HTTP 404' }),
+    row('/c/', 'TARGET_BROKEN', { actual: '/archive/c/', detail: '→ /archive/c/, which answers HTTP 410' }),
+    row('/d/', 'TARGET_BROKEN', { actual: '/new/d/', detail: '→ /new/d/, which answers HTTP 404' }),
+  ];
+  const h = only(triageHints(results, {}), 'TARGET_BROKEN');
+  assert.equal(h.cause, 'error-page-target');
+  assert.match(h.text, /^\[2 of 4\] 2 redirects send visitors to the site's error page/);
+  assert.deepEqual(h.causes.map(c => [c.cause, c.count]), [['error-page-target', 2], ['target-retired', 1], ['unspecified', 1]]);
+  assert.match(h.text, /Also: 1 point at a retired page \(410\); 1 with no common cause\./);
+  // a page whose slug only contains "error" is not the error page
+  assert.equal(only(triageHints([row('/e/', 'TARGET_BROKEN', { actual: '/blog/error-budgets/', detail: 'x, which answers HTTP 404' })], {}), 'TARGET_BROKEN').cause, 'unspecified');
+});
+
+test('harvest: linkId is a tracking parameter', () => {
+  assert.deepEqual(cleanPaths(['http://old.example/post/?linkId=88902254']), ['/post/']);
+});
+
+test('hints TARGET_BROKEN: the same slug under a section that does not exist is one cause', () => {
+  const results = [
+    row('/hello-world/', 'TARGET_BROKEN', { actual: '/uncategorized/hello-world/', detail: 'x, which answers HTTP 404' }),
+    row('/second-post/', 'TARGET_BROKEN', { actual: '/news/second-post/', detail: 'x, which answers HTTP 404' }),
+    row('/third/', 'TARGET_BROKEN', { actual: '/elsewhere/', detail: 'x, which answers HTTP 404' }),
+  ];
+  const h = only(triageHints(results, {}), 'TARGET_BROKEN');
+  assert.equal(h.cause, 'slug-under-new-section');
+  assert.match(h.text, /\(\/uncategorized\/, \/news\/\)/);
+  assert.deepEqual(h.causes.map(c => [c.cause, c.count]), [['slug-under-new-section', 2], ['unspecified', 1]]);
+});

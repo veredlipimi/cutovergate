@@ -8,7 +8,7 @@ const NOISE = /^\/(wp-json|wp-admin|wp-includes|cdn-cgi|_next|static|assets|feed
 // The old site's own error page is not a legacy URL anyone needs redirected.
 const ERROR_PAGE = /\/(404|410|500|not-?found|page-not-found|error)(\.(html?|php|aspx?))?\/?$/i;
 // Tracking and cache-busting parameters: removed, so the page itself is kept once.
-const TRACKING = /^(utm_.*|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_ga|_gl|igshid|yclid|wbraid|gbraid|mkt_tok|_hsenc|_hsmi|hsctatracking|vero_id|ref|ref_src|source|es_p|ver|print|share|target|amp|replytocom|wpx-.*)$/i;
+const TRACKING = /^(utm_.*|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_ga|_gl|igshid|yclid|wbraid|gbraid|mkt_tok|linkid|_hsenc|_hsmi|hsctatracking|vero_id|ref|ref_src|source|es_p|ver|print|share|target|amp|replytocom|wpx-.*)$/i;
 
 /** A path Wayback recorded from a broken link (quotes, brackets, spaces), not a page that existed. */
 function malformed(p) {
