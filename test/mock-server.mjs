@@ -31,6 +31,8 @@ const DIRECT = {
   '/old-missing': 404, '/old-200': 200, '/retired': 410, '/gone-target': 404,
   '/shop/1': 404, '/shop/2': 404,
   // legacy paths the platform refuses before any redirect rule runs
+  // a site refusing the probe
+  '/blocked-1': 403, '/blocked-2': 403, '/blocked-3': 403, '/blocked-4': 403,
   '/old/about.1.aspx': 400, '/old/team.2.aspx': 400, '/old/contact.3.aspx': 400,
 };
 

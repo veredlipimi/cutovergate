@@ -52,7 +52,8 @@ export async function runSite(site, opts = {}) {
     gate, taxonomy: taxonomy(results, customHints), results,
     ...(hintFiles.length ? { hintFiles: hintFiles.map(f => path.basename(f)) } : {}),
   };
-  run.delta = recordRun(historyDir || path.join(outDir, 'history', 'redirects'), domain, run, { compareTo });
+  // A blocked run measured the site's bot protection, not its redirects: keep it out of history and delta.
+  run.delta = gate.status === 'BLOCKED' ? null : recordRun(historyDir || path.join(outDir, 'history', 'redirects'), domain, run, { compareTo });
   // Something got worse? List what changed in the repo between the two runs.
   const repo = site.repo || changes?.repo;
   if (repo && needsSuspects(run.delta)) {

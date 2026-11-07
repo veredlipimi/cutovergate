@@ -4,7 +4,18 @@ import fs from 'node:fs';
 import { USER_AGENT } from './util.mjs';
 
 const ASSET = /\.(css|js|mjs|map|json|xml|txt|ico|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|eot|mp4|mp3|webm|zip)$/i;
-const NOISE = /^\/(wp-json|wp-admin|wp-includes|cdn-cgi|_next|static|assets|feed|xmlrpc\.php)(\/|$)|\/(feed|amp)\/?$/i;
+const NOISE = /^\/(wp-json|wp-admin|wp-includes|cdn-cgi|_next|static|assets|feed|xmlrpc\.php|\.well-known)(\/|$)|\/(feed|amp)\/?$/i;
+// The old site's own error page is not a legacy URL anyone needs redirected.
+const ERROR_PAGE = /\/(404|410|500|not-?found|page-not-found|error)(\.(html?|php|aspx?))?\/?$/i;
+// Tracking and cache-busting parameters: removed, so the page itself is kept once.
+const TRACKING = /^(utm_.*|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_ga|_gl|igshid|yclid|wbraid|gbraid|mkt_tok|_hsenc|_hsmi|hsctatracking|vero_id|ref|ref_src|source|es_p|ver|print|share|target|amp|replytocom|wpx-.*)$/i;
+
+/** A path Wayback recorded from a broken link (quotes, brackets, spaces), not a page that existed. */
+function malformed(p) {
+  if (/["'<>\\\s]|%2[27]/i.test(p)) return true;
+  const open = (p.match(/\(/g) || []).length, close = (p.match(/\)/g) || []).length;
+  return open !== close;
+}
 
 export function cleanPaths(originals, { limit = 150 } = {}) {
   const seen = new Set();
@@ -13,12 +24,16 @@ export function cleanPaths(originals, { limit = 150 } = {}) {
     let u;
     try { u = new URL(/^https?:\/\//i.test(o) ? o : 'http://' + o); } catch { continue; }
     const p = decodeSafe(u.pathname);
-    if (ASSET.test(p) || NOISE.test(p) || p.length > 200) continue;
-    if ([...u.searchParams.keys()].some(k => /^(utm_|fbclid|gclid|replytocom|s$|p$)/i.test(k))) continue;
-    const key = (p.replace(/\/+$/, '') || '/') + u.search;
+    if (ASSET.test(p) || NOISE.test(p) || ERROR_PAGE.test(p) || malformed(p) || p.length > 200) continue;
+    if ([...u.searchParams.keys()].some(k => /^(s|p)$/i.test(k))) continue; // site search and ?p= previews
+    for (const k of [...u.searchParams.keys()]) if (TRACKING.test(k)) u.searchParams.delete(k);
+    const path = p.replace(/\/+$/, '') || '/';
+    // A query on the homepage is a variant of the homepage, not another legacy page.
+    const search = path === '/' ? '' : (u.searchParams.toString() ? '?' + u.searchParams.toString() : '');
+    const key = path + search;
     if (seen.has(key.toLowerCase())) continue;
     seen.add(key.toLowerCase());
-    out.push(encodeURI(p) + u.search);
+    out.push(encodeURI(p) + search);
   }
   // Prefer shallow, representative pages first; keep the homepage.
   out.sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);

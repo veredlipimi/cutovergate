@@ -56,6 +56,24 @@ export function triageExceptions(list, now = new Date()) {
  * Excepted rows are still probed and shown, but not counted.
  * Strict mode: ERROR rows always block, even when excepted.
  */
+const BLOCK_STATUSES = new Set([401, 403, 429]);
+
+/**
+ * The site refused the probe itself: most URLs answer the same 401/403/429 with no redirect.
+ * Then nothing was learned about the redirects; the run is BLOCKED (not tested), never PASS or FAIL.
+ */
+export function detectBlocked(results, { share = 0.8, min = 3 } = {}) {
+  if (results.length < min) return null;
+  const by = {};
+  for (const r of results) if (!r.location && BLOCK_STATUSES.has(r.httpStatus)) by[r.httpStatus] = (by[r.httpStatus] || 0) + 1;
+  const [status, count] = Object.entries(by).sort((a, b) => b[1] - a[1])[0] || [];
+  if (!count || count / results.length < share) return null;
+  return {
+    httpStatus: Number(status), count, of: results.length,
+    reason: `${count} of ${results.length} URLs answer HTTP ${status} with no redirect: the site is refusing the probe (Possible: bot protection or rate limiting). These results say nothing about the redirects — not tested. Re-run from an allowed network or with --delay-ms.`,
+  };
+}
+
 export function evaluateGate(results, exceptionList, { strict = false, now = new Date() } = {}) {
   const ex = triageExceptions(exceptionList, now);
   const used = new Set();
@@ -75,8 +93,10 @@ export function evaluateGate(results, exceptionList, { strict = false, now = new
   const counts = {};
   for (const r of results) counts[r.result] = (counts[r.result] || 0) + 1;
   const clean = e => { const { _re, ...rest } = e; return rest; };
+  const blocked = detectBlocked(results);
   return {
-    status: effective.length === 0 ? 'PASS' : 'FAIL',
+    status: blocked ? 'BLOCKED' : effective.length === 0 ? 'PASS' : 'FAIL',
+    ...(blocked ? { blocked } : {}),
     strict,
     probed: results.length,
     passed: results.length - failures.length,
