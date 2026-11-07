@@ -331,7 +331,7 @@ test('"*" rules: a deep page sent to the homepage is a gap; a broken landing pag
 // ---------------------------------------------------------------- suspect changes + Slack
 import http from 'node:http';
 import { parseRepo, describeCommit, suspectChanges } from '../src/changes.mjs';
-import { shouldNotify, runMessage, batchMessage } from '../src/notify.mjs';
+import { shouldNotify, shouldNotifyBatch, runMessage, batchMessage, runSummary, toTeams } from '../src/notify.mjs';
 
 /** A fake GitHub API and Slack webhook in one server; records every request. */
 function fakeServices() {
@@ -350,7 +350,7 @@ function fakeServices() {
         ]));
       }
       if (u.pathname.startsWith('/repos/')) { res.writeHead(404); return res.end('{}'); }
-      if (u.pathname === '/slack') { res.writeHead(200); return res.end('ok'); }
+      if (u.pathname === '/slack' || u.pathname === '/teams') { res.writeHead(u.pathname === '/teams' ? 202 : 200); return res.end('ok'); }
       res.writeHead(404); res.end();
     });
   });
@@ -408,7 +408,7 @@ test('changes: an API problem is reported, never breaks the run', async () => {
   } finally { await gh.close(); }
 });
 
-test('slack: when to notify, and what the message says', () => {
+test('notifications: when to notify, and what Slack and Teams messages say', () => {
   const run = (status, regressions = []) => ({
     domain: 'www.example.test', phase: 'live', gate: { status, strict: false, probed: 10, passed: status === 'PASS' ? 10 : 8, excepted: 0, effectiveFailures: status === 'PASS' ? 0 : 2 },
     delta: { previousRun: 'r1', regressions, added: [], fixed: [] },
@@ -423,28 +423,48 @@ test('slack: when to notify, and what the message says', () => {
   assert.equal(shouldNotify(run('FAIL'), 'regression'), false);
   assert.equal(shouldNotify(run('PASS'), 'always'), true);
   const text = runMessage(run('FAIL', reg)).text;
-  assert.match(text, /gate \*FAIL\*/);
+  assert.match(text, /gate FAIL/);
   assert.match(text, /`\/a` PASS → MISSING/);
   assert.match(text, /`\/b` WRONG_TARGET/);
   assert.ok(!/`\/a` MISSING/.test(text), 'a regression is not listed twice');
   assert.match(text, /<https:\/\/gh\.test\/c\|a1b2c3d>/);
   assert.match(batchMessage([{ domain: 'a', gate: 'PASS' }, { domain: 'b', gate: 'FAIL', regressions: 2 }]).text, /1\/2 sites pass[\s\S]*\*b\* FAIL · 2 regressions/);
+  assert.equal(shouldNotifyBatch([{ gate: 'PASS' }], 'fail'), false);
+  assert.equal(shouldNotifyBatch([{ gate: 'PASS', regressions: 1 }], 'fail'), true);
+  assert.equal(shouldNotifyBatch([{ gate: 'FAIL' }], 'regression'), false);
+
+  // Teams: an Adaptive Card in the envelope Workflows webhooks expect
+  const card = toTeams(runSummary(run('FAIL', reg)));
+  assert.equal(card.type, 'message');
+  assert.equal(card.attachments[0].contentType, 'application/vnd.microsoft.card.adaptive');
+  const body = card.attachments[0].content.body;
+  assert.equal(card.attachments[0].content.version, '1.4');
+  assert.equal(body[0].color, 'Attention');
+  const facts = Object.fromEntries(body.find(b => b.type === 'FactSet').facts.map(f => [f.title, f.value]));
+  assert.equal(facts.Gate, 'FAIL'); assert.equal(facts['Effective failures'], '2');
+  const all = body.map(b => b.text || '').join('\n');
+  assert.match(all, /`\/a` PASS → MISSING/);
+  assert.match(all, /\[a1b2c3d\]\(https:\/\/gh\.test\/c\)/);
+  assert.equal(toTeams(runSummary(run('PASS'))).attachments[0].content.body[0].color, 'Good');
 });
 
-test('CLI: --notify-slack posts on a failing gate and stays quiet on a pass', async () => {
+test('CLI: --notify-slack and --notify-teams post on a failing gate and stay quiet on a pass', async () => {
   const hook = await fakeServices();
   const run = args => new Promise(r => execFile(process.execPath, [cli, ...args], { env: { ...process.env, NO_COLOR: '1' } }, (e, out, err) => r({ code: e ? e.code : 0, out, err })));
   try {
     const good = path.join(tmp, 'slack-good.csv'), bad = path.join(tmp, 'slack-bad.csv');
     fs.writeFileSync(good, 'from,to\n/old-pass,/new-pass\n');
     fs.writeFileSync(bad, 'from,to\n/old-missing,/x\n');
-    const base = ['--origin', site.url, '--out', path.join(tmp, 'slack-runs'), '--notify-slack', `${hook.url}/slack`, '--quiet'];
+    const base = ['--origin', site.url, '--out', path.join(tmp, 'slack-runs'), '--notify-slack', `${hook.url}/slack`, '--notify-teams', `${hook.url}/teams`, '--quiet'];
     assert.equal((await run(['probe', '--map', good, ...base])).code, 0);
     assert.equal(hook.seen.length, 0);
     const r = await run(['probe', '--map', bad, ...base]);
     assert.equal(r.code, 1);
-    assert.equal(hook.seen.length, 1);
-    assert.match(JSON.parse(hook.seen[0].body).text, /gate \*FAIL\*[\s\S]*\/old-missing/);
+    assert.equal(hook.seen.length, 2);
+    const slack = hook.seen.find(x => x.url === '/slack'), teams = hook.seen.find(x => x.url === '/teams');
+    assert.match(JSON.parse(slack.body).text, /gate FAIL[\s\S]*\/old-missing/);
+    assert.equal(JSON.parse(teams.body).attachments[0].content.type, 'AdaptiveCard');
+    assert.match(r.out, /teams notified/);
     assert.equal((await run(['probe', '--map', good, ...base, '--notify-on', 'sometimes'])).code, 2);
   } finally { await hook.close(); }
 });

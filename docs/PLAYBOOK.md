@@ -55,7 +55,7 @@ cutovergate verify --map map.csv --candidates "staging=…,live=…" --fingerpri
 2. The delta compares against the last pre-cutover run. Any regression needs immediate attention.
 3. The gate must pass before you close the migration ticket.
 
-Add `--notify-slack` to the scheduled post-cutover run, so the team hears about a regression the day it happens, not from a traffic report weeks later.
+Add `--notify-slack` or `--notify-teams` to the scheduled post-cutover run, so the team hears about a regression the day it happens, not from a traffic report weeks later.
 
 ## Troubleshooting
 

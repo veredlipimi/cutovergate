@@ -113,7 +113,7 @@ Every hop is traced with `redirect: manual`:
 - `.csv`: for a spreadsheet or a status email;
 - `.json`: the full detail, for a ticket.
 
-### When something gets worse: suspect changes and Slack
+### When something gets worse: suspect changes, Slack and Teams
 
 **Suspect changes.** A regression after a clean run almost always has a cause in between: a config deploy, a routing change, a CMS export. If the redirect config lives in a repository, point CutoverGate at it:
 
@@ -124,11 +124,14 @@ GITHUB_TOKEN=… cutovergate probe --map map.csv --origin https://www.example.co
 
 When the delta shows regressions or new failures, the report lists the commits that landed in that repo (optionally only under `--repo-path`) between the previous run and this one, with their PR numbers. Nothing is fetched when nothing got worse. An API problem is shown in the report and never changes the gate. GitHub Enterprise works with `--github-api https://ghe.example.com/api/v3`. In `batch`, each site can set its own `repo` and `repoPath`.
 
-**Slack.** Send the result to a channel through an incoming webhook:
+**Slack and Microsoft Teams.** Send the result to a channel through an incoming webhook. Use either one, or both:
 
 ```bash
-cutovergate verify … --notify-slack "$CUTOVERGATE_SLACK_WEBHOOK" --notify-on fail
+cutovergate verify … --notify-slack "$SLACK_WEBHOOK" --notify-teams "$TEAMS_WEBHOOK" --notify-on fail
 ```
+
+- **Slack:** create an [incoming webhook](https://api.slack.com/messaging/webhooks) for the channel.
+- **Teams:** in the channel, add the Workflows template *"Post to a channel when a webhook request is received"* and copy its URL. CutoverGate posts an Adaptive Card (gate, counts, regressions, failures, suspect commits). Teams' older Office 365 connectors are being retired by Microsoft, so use Workflows for new setups.
 
 | `--notify-on` | Posts when |
 |---|---|
@@ -136,7 +139,7 @@ cutovergate verify … --notify-slack "$CUTOVERGATE_SLACK_WEBHOOK" --notify-on f
 | `regression` | something that passed before fails now |
 | `always` | every run |
 
-The message carries the gate, the counts, the regressions and failures, the top suspect commits and the high-severity triage hints. `batch` posts one summary for all sites. The webhook can also come from `$CUTOVERGATE_SLACK_WEBHOOK`.
+`batch` posts one summary for all sites. The URLs can also come from `$CUTOVERGATE_SLACK_WEBHOOK` and `$CUTOVERGATE_TEAMS_WEBHOOK`, so they stay out of shell history and CI logs.
 
 ### The gate
 
@@ -221,7 +224,7 @@ CutoverGate only sends GET and HEAD requests. Concurrency is bounded (`--concurr
 ## Tests
 
 ```bash
-npm test     # 28 tests against local mock sites, covering every result type, gate rule, exception rule, CLI exit code, suspect changes and Slack
+npm test     # 28 tests against local mock sites, covering every result type, gate rule, exception rule, CLI exit code, suspect changes and Slack/Teams
 ```
 
 ## Credits
@@ -244,7 +247,7 @@ MIT © Vered Li
 5. **דלתא:** החל מההרצה השנייה הדוח מציג רגרסיות, כשלים חדשים ומה תוקן.
 6. `verify` רץ אחרי ההעברה ומשווה מול ההרצה האחרונה שלפניה.
 7. `batch` מריץ את הבדיקה על הרבה אתרים בבת אחת, ו-`files` בודק שקבצי PDF ומסמכים מקושרים עדיין זמינים.
-8. **כשמשהו נשבר:** עם `--repo` הדוח מציג את ה-commits שנכנסו לריפו של ההגדרות בין ההרצה הקודמת לנוכחית, כ"חשודים" לרגרסיה. עם `--notify-slack` נשלחת הודעה לערוץ כשהשער נכשל או כשיש רגרסיה.
+8. **כשמשהו נשבר:** עם `--repo` הדוח מציג את ה-commits שנכנסו לריפו של ההגדרות בין ההרצה הקודמת לנוכחית, כ"חשודים" לרגרסיה. עם `--notify-slack` או `--notify-teams` נשלחת הודעה לערוץ ב-Slack או ב-Teams כשהשער נכשל או כשיש רגרסיה.
 9. `qa` מחבר ל-[web-qa-agent](https://github.com/veredlipimi/web-qa-agent): אחרי שהשער עובר, הסוכן בודק את עמודי היעד עצמם (נגישות, טפסים, RTL, ביצועים), וכך יודעים לא רק שההפניה נכונה אלא גם שהעמוד שמגיעים אליו תקין.
 
 **ייצוא:** דוח HTML עם סינון, קובץ CSV לגיליון או למייל עדכון, וקובץ JSON לכרטיס.
