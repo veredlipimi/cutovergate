@@ -108,7 +108,9 @@ export const BUILTIN_HINTS = [
       {
         key: 'catch-all-home', min: 2, evidence: 'Likely',
         pick: rows => rows.filter(r => r.actual === '/'),
-        say: sub => `${sub.length} URLs redirect to the homepage ${eg(sub)} — Likely a catch-all rule overriding specific rules. Search engines treat this as a soft 404.`,
+        say: (sub, { results }) => (results.length >= 10 && sub.length / results.length >= 0.9
+          ? `${sub.length} of ${results.length} legacy URLs redirect to the homepage ${eg(sub)} — Likely a domain-level redirect that drops the path, so no old page keeps its address. Search engines treat this as a soft 404. Redirect each old page to its new page, or keep the path.`
+          : `${sub.length} URLs redirect to the homepage ${eg(sub)} — Likely a catch-all rule overriding specific rules. Search engines treat this as a soft 404.`),
         short: sub => `${sub.length} go to the homepage (Likely a catch-all)`,
       },
       {
