@@ -44,7 +44,9 @@ export function printSummary(run, { quiet = false } = {}) {
   for (const e of run.gate.exceptions.invalid) lines.push(`  ${c.yellow('⚠')} exception ignored (${e.problem}): ${e.path || '?'}`);
   if (!quiet) {
     const bad = run.results.filter(r => !r.ok);
-    if (bad.length) {
+    if (bad.length && run.gate.status === 'BLOCKED') {
+      lines.push('', c.dim(`  Failure list left out: the site refused the probe, so these ${bad.length} rows say nothing about the redirects. They are in the report.`));
+    } else if (bad.length) {
       lines.push('', c.bold('  Failures'));
       for (const r of bad.slice(0, 40)) lines.push(`  ${r.excepted ? c.dim('EXCEPTED') : c.red(r.result.padEnd(13))} ${r.from}  ${c.dim(r.detail || '')}`);
       if (bad.length > 40) lines.push(c.dim(`  … ${bad.length - 40} more in the report`));

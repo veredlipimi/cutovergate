@@ -743,3 +743,40 @@ test('hints TARGET_BROKEN: the same slug under a section that does not exist is 
   assert.match(h.text, /\(\/uncategorized\/, \/news\/\)/);
   assert.deepEqual(h.causes.map(c => [c.cause, c.count]), [['slug-under-new-section', 2], ['unspecified', 1]]);
 });
+
+test('harvest: the sample is spread across sections, so one huge section cannot crowd out the site', () => {
+  const profiles = Array.from({ length: 50 }, (_, i) => `http://old.example/tag/0topic${i}`);
+  const out = cleanPaths(['http://old.example/', ...profiles, 'http://old.example/about/', 'http://old.example/blog/post-1', 'http://old.example/blog/post-2'], { limit: 5 });
+  assert.equal(out[0], '/');
+  assert.ok(out.includes('/about/') && out.some(p => p.startsWith('/blog/')), `about and blog are in the sample: ${out}`);
+});
+
+test('harvest: a capped answer from a large site also reads index pages spread across the site', async () => {
+  const { harvest } = await import('../src/harvest.mjs');
+  const urls = [];
+  const fetchImpl = async (u) => {
+    urls.push(u);
+    const q = new URL(u).searchParams;
+    if (q.get('showNumPages')) return { ok: true, json: async () => 10 };
+    if (q.get('page')) return { ok: true, json: async () => [['original'], [`http://old.example/section${q.get('page')}/page`]] };
+    // first answer: capped (limit 2 × 8 = 16 rows), all from one section at the start of the alphabet
+    return { ok: true, json: async () => [['original'], ...Array.from({ length: 16 }, (_, i) => [`http://old.example/u/0user${i}`])] };
+  };
+  const out = await harvest('old.example', { limit: 2, fetchImpl, backoffMs: 1 });
+  assert.ok(urls.some(u => /showNumPages=true/.test(u)), 'asks how many index pages there are');
+  assert.ok(out.some(p => p.startsWith('/section')), `pages from later in the index are sampled: ${out}`);
+  // a small site (answer under the cap) makes one request only
+  urls.length = 0;
+  await harvest('old.example', { limit: 150, fetchImpl: async (u) => { urls.push(u); return { ok: true, json: async () => [['original'], ['http://old.example/about']] }; }, backoffMs: 1 });
+  assert.equal(urls.length, 1);
+});
+
+test('hints: nearly every URL to the homepage reads as a domain-level redirect that drops the path', async () => {
+  const { triageHints } = await import('../src/hints.mjs');
+  const results = Array.from({ length: 20 }, (_, i) => ({ from: `/p${i}/`, to: '*', result: 'WRONG_TARGET', actual: '/', group: 'g', ok: false }));
+  results.push({ from: '/', to: '*', result: 'REDIRECT_OK', group: 'home', ok: true });
+  const t = triageHints(results, { g: { total: 20, WRONG_TARGET: 20 }, home: { total: 1 } }).find(h => h.id === 'WRONG_TARGET');
+  assert.match(t.text, /20 of 21 legacy URLs redirect to the homepage .*domain-level redirect that drops the path/);
+  const few = results.slice(0, 3).concat(Array.from({ length: 10 }, (_, i) => ({ from: `/ok${i}`, result: 'REDIRECT_OK', ok: true, group: 'g' })));
+  assert.match(triageHints(few, { g: { total: 13, WRONG_TARGET: 3 } }).find(h => h.id === 'WRONG_TARGET').text, /catch-all rule/);
+});

@@ -38,34 +38,72 @@ export function cleanPaths(originals, { limit = 150 } = {}) {
     out.push(encodeURI(p) + search);
   }
   // Prefer shallow, representative pages first; keep the homepage.
-  out.sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);
-  return out.slice(0, limit);
+  const shallow = (a, b) => a.split('/').length - b.split('/').length || a.length - b.length;
+  // Spread the sample across sections (/blog/*, /about, …): one section with thousands of
+  // URLs (user profiles, tag pages) must not crowd out the rest of the site.
+  const groups = new Map();
+  for (const p of out.sort(shallow)) {
+    const g = p === '/' ? '' : p.split(/[/?]/)[1].toLowerCase();
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(p);
+  }
+  const lists = [...groups.values()];
+  const picked = [];
+  for (let i = 0; picked.length < limit && lists.some(l => i < l.length); i++)
+    for (const l of lists) if (i < l.length && picked.length < limit) picked.push(l[i]);
+  return picked;
 }
 
-export async function harvest(oldDomain, { limit = 150, from, to, timeoutMs = 60000, retries = 3, backoffMs = 2000, fetchImpl = fetch } = {}) {
+export async function harvest(oldDomain, { limit = 150, from, to, timeoutMs = 60000, retries = 3, backoffMs = 2000, samplePages = 4, fetchImpl = fetch } = {}) {
   const host = oldDomain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-  const qs = new URLSearchParams({ url: `${host}/*`, output: 'json', fl: 'original', filter: 'statuscode:200', collapse: 'urlkey', limit: String(limit * 8) });
+  const cap = limit * 8;
+  const qs = new URLSearchParams({ url: `${host}/*`, output: 'json', fl: 'original', filter: 'statuscode:200', collapse: 'urlkey', limit: String(cap) });
   if (from) qs.set('from', from);
   if (to) qs.set('to', to);
-  const url = `https://web.archive.org/cdx/search/cdx?${qs}`;
+  const base = 'https://web.archive.org/cdx/search/cdx?';
+
   // The archive is often busy (429/5xx, timeouts): retry with backoff before giving up.
-  let last = '';
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    const ac = new AbortController();
-    const t = setTimeout(() => ac.abort(), timeoutMs);
-    try {
-      const res = await fetchImpl(url, { signal: ac.signal, headers: { 'user-agent': USER_AGENT } });
-      if (res.ok) return cleanPaths((await res.json()).slice(1).map(r => r[0]), { limit });
-      last = `HTTP ${res.status}`;
-      if (res.status !== 429 && res.status < 500) break; // a 4xx other than 429 will not change on retry
-    } catch (e) {
-      last = e.name === 'AbortError' ? `no answer in ${Math.round(timeoutMs / 1000)}s` : e.message;
-    } finally { clearTimeout(t); }
-    if (attempt < retries) await new Promise(r => setTimeout(r, backoffMs * attempt));
+  async function get(params, tries = retries) {
+    let last = '';
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), timeoutMs);
+      try {
+        const res = await fetchImpl(base + params, { signal: ac.signal, headers: { 'user-agent': USER_AGENT } });
+        if (res.ok) return { ok: true, data: await res.json() };
+        last = `HTTP ${res.status}`;
+        if (res.status !== 429 && res.status < 500) break; // a 4xx other than 429 will not change on retry
+      } catch (e) {
+        last = e.name === 'AbortError' ? `no answer in ${Math.round(timeoutMs / 1000)}s` : e.message;
+      } finally { clearTimeout(t); }
+      if (attempt < tries) await new Promise(r => setTimeout(r, backoffMs * attempt));
+    }
+    return { ok: false, last };
   }
-  const err = new Error(`The Wayback Machine did not answer for ${host} (${last}, ${retries} attempts). It is often busy; try again in a few minutes. Nothing was written.`);
-  err.usage = true; // an outside service problem: show the message, not a stack trace
-  throw err;
+
+  const first = await get(qs.toString());
+  if (!first.ok) {
+    const err = new Error(`The Wayback Machine did not answer for ${host} (${first.last}, ${retries} attempts). It is often busy; try again in a few minutes. Nothing was written.`);
+    err.usage = true; // an outside service problem: show the message, not a stack trace
+    throw err;
+  }
+  const rows = first.data.slice(1).map(r => r[0]);
+
+  // The index is sorted by URL, so a capped answer from a large site covers only the start of
+  // the alphabet. Then also read a few index pages spread across the whole site. Best effort:
+  // if the archive refuses them, the first answer is used as it is.
+  if (rows.length >= cap && samplePages > 0) {
+    const n = await get(new URLSearchParams({ ...Object.fromEntries(qs), showNumPages: 'true' }).toString(), 1);
+    const pages = n.ok ? Number(Array.isArray(n.data) ? n.data[0] : n.data) : 0;
+    if (pages > 1) {
+      const idx = [...new Set(Array.from({ length: samplePages }, (_, i) => Math.floor(((i + 1) * pages) / (samplePages + 1))))];
+      for (const page of idx) {
+        const r = await get(new URLSearchParams({ ...Object.fromEntries(qs), page: String(page) }).toString(), 1);
+        if (r.ok && Array.isArray(r.data)) rows.push(...r.data.slice(1).map(x => x[0]));
+      }
+    }
+  }
+  return cleanPaths(rows, { limit });
 }
 
 export function writeStarterMap(file, paths, mode) {
