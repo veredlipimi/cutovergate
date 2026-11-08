@@ -10,7 +10,7 @@ When a site moves to a new platform, the redirect map decides whether years of s
 
 ## Validated on real migrations
 
-- **Against a reference tool:** 224 redirects on 18 live migrated sites. 99.6% agreement with the reference tool, and it caught a real post-launch regression.
+- **Against a reference tool:** 224 redirects on 18 live migrated sites. 99.6% agreement with the reference tool, and it caught a real post-launch regression. Scope: the reference results come from one platform and one client's sites, so this shows agreement with that tool there, not coverage of every platform.
 - **On public, documented migrations** (November 2026, read-only GET requests, maps rebuilt from the Wayback Machine). Each run was repeated and gave the same result.
   - postmarketOS → Nura (`postmarketos.org` → `nura.eco`): 149 of 150 legacy URLs land on a working page. One lands on a 404.
   - Pure Storage → Everpure, blog (`blog.purestorage.com` → `blog.everpuredata.com`): 107 of 150 land on a working page; 38 land on a broken page and 5 on the homepage, each group with its likely cause.
@@ -315,6 +315,6 @@ MIT © Vered Li
 
 **ייצוא:** דוח HTML עם סינון, קובץ CSV לגיליון או למייל עדכון, וקובץ JSON לכרטיס.
 
-**נבדק על מיגרציות אמיתיות:** ‏224 הפניות ב-18 אתרים חיים (99.6% התאמה לכלי הייחוס), ושתי מיגרציות ציבוריות ומתועדות. הפירוט ב-[docs/case-studies.md](docs/case-studies.md).
+**נבדק על מיגרציות אמיתיות:** ‏224 הפניות ב-18 אתרים חיים (99.6% התאמה לכלי הייחוס; ה-baseline הוא מפלטפורמה אחת ומאתרים של לקוח אחד, ולכן זו התאמה לכלי הייחוס שם, לא כיסוי של כל פלטפורמה), ושתי מיגרציות ציבוריות ומתועדות. הפירוט ב-[docs/case-studies.md](docs/case-studies.md).
 
 **התקנה:** `git clone https://github.com/veredlipimi/cutovergate`. נדרש Node 18 ומעלה, בלי תלויות.
