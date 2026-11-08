@@ -54,7 +54,7 @@ export function cleanPaths(originals, { limit = 150 } = {}) {
   return picked;
 }
 
-export async function harvest(oldDomain, { limit = 150, from, to, timeoutMs = 60000, retries = 3, backoffMs = 2000, samplePages = 4, fetchImpl = fetch } = {}) {
+export async function harvest(oldDomain, { limit = 150, from, to, timeoutMs = 60000, retries = 3, backoffMs = 2000, samplePrefixes = 8, fetchImpl = fetch } = {}) {
   const host = oldDomain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   const cap = limit * 8;
   const qs = new URLSearchParams({ url: `${host}/*`, output: 'json', fl: 'original', filter: 'statuscode:200', collapse: 'urlkey', limit: String(cap) });
@@ -90,17 +90,16 @@ export async function harvest(oldDomain, { limit = 150, from, to, timeoutMs = 60
   const rows = first.data.slice(1).map(r => r[0]);
 
   // The index is sorted by URL, so a capped answer from a large site covers only the start of
-  // the alphabet. Then also read a few index pages spread across the whole site. Best effort:
-  // if the archive refuses them, the first answer is used as it is.
-  if (rows.length >= cap && samplePages > 0) {
-    const n = await get(new URLSearchParams({ ...Object.fromEntries(qs), showNumPages: 'true' }).toString(), 1);
-    const pages = n.ok ? Number(Array.isArray(n.data) ? n.data[0] : n.data) : 0;
-    if (pages > 1) {
-      const idx = [...new Set(Array.from({ length: samplePages }, (_, i) => Math.floor(((i + 1) * pages) / (samplePages + 1))))];
-      for (const page of idx) {
-        const r = await get(new URLSearchParams({ ...Object.fromEntries(qs), page: String(page) }).toString(), 1);
-        if (r.ok && Array.isArray(r.data)) rows.push(...r.data.slice(1).map(x => x[0]));
-      }
+  // the alphabet (/0…, /1…). Then also ask for a few path prefixes spread across the alphabet.
+  // (The archive's page-based paging does not work together with filter and collapse.)
+  // Best effort: if the archive refuses a prefix, the rows already read are used as they are.
+  if (rows.length >= cap && samplePrefixes > 0) {
+    const letters = 'abcdefghijklmnopqrstuvwxyz';
+    const pick = [...new Set(Array.from({ length: samplePrefixes }, (_, i) => letters[Math.floor((i * letters.length) / samplePrefixes)]))];
+    const each = Math.max(limit, Math.ceil(cap / pick.length));
+    for (const ch of pick) {
+      const r = await get(new URLSearchParams({ ...Object.fromEntries(qs), url: `${host}/${ch}*`, limit: String(each) }).toString(), 1);
+      if (r.ok && Array.isArray(r.data)) rows.push(...r.data.slice(1).map(x => x && x[0]).filter(Boolean));
     }
   }
   return cleanPaths(rows, { limit });

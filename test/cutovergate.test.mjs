@@ -751,20 +751,20 @@ test('harvest: the sample is spread across sections, so one huge section cannot 
   assert.ok(out.includes('/about/') && out.some(p => p.startsWith('/blog/')), `about and blog are in the sample: ${out}`);
 });
 
-test('harvest: a capped answer from a large site also reads index pages spread across the site', async () => {
+test('harvest: a capped answer from a large site also samples path prefixes across the alphabet', async () => {
   const { harvest } = await import('../src/harvest.mjs');
   const urls = [];
   const fetchImpl = async (u) => {
     urls.push(u);
-    const q = new URL(u).searchParams;
-    if (q.get('showNumPages')) return { ok: true, json: async () => 10 };
-    if (q.get('page')) return { ok: true, json: async () => [['original'], [`http://old.example/section${q.get('page')}/page`]] };
-    // first answer: capped (limit 2 × 8 = 16 rows), all from one section at the start of the alphabet
+    const target = new URL(u).searchParams.get('url');
+    const m = target.match(/\/([a-z])\*$/);
+    if (m) return { ok: true, json: async () => [['original'], [`http://old.example/${m[1]}-section/page`]] };
+    // first answer: capped (limit 2 × 8 = 16 rows), all at the start of the alphabet
     return { ok: true, json: async () => [['original'], ...Array.from({ length: 16 }, (_, i) => [`http://old.example/u/0user${i}`])] };
   };
   const out = await harvest('old.example', { limit: 2, fetchImpl, backoffMs: 1 });
-  assert.ok(urls.some(u => /showNumPages=true/.test(u)), 'asks how many index pages there are');
-  assert.ok(out.some(p => p.startsWith('/section')), `pages from later in the index are sampled: ${out}`);
+  assert.ok(urls.some(u => /url=old\.example%2Fn\*/.test(u)), 'asks for a prefix in the middle of the alphabet');
+  assert.ok(out.some(p => /-section\//.test(p)), `pages from later in the alphabet are sampled: ${out}`);
   // a small site (answer under the cap) makes one request only
   urls.length = 0;
   await harvest('old.example', { limit: 150, fetchImpl: async (u) => { urls.push(u); return { ok: true, json: async () => [['original'], ['http://old.example/about']] }; }, backoffMs: 1 });
