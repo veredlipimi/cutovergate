@@ -2,7 +2,7 @@
 
 Each site below announced its migration publicly. CutoverGate was run against the old domain with read-only GET requests (3 in parallel, 200 ms apart). The legacy URL map was rebuilt from the Wayback Machine with `harvest --mode any`: any working target counts as a pass, except the homepage (a soft 404) or a broken page.
 
-What is reported here is what was observed on the date of the run. A cause is labelled **Likely** or **Possible** when it is inferred. Every run was repeated, and the second run gave the same result (`delta: 0 regressions · 0 new · 0 fixed`).
+What is reported here is what was observed on the date of the run. A cause is labelled **Likely** or **Possible** when it is inferred. The Nura and Everpure runs were repeated, and the repeat gave the same result (`delta: 0 regressions · 0 new · 0 fixed`). The Eluviant and Magnific runs were run once.
 
 How to reproduce any line below:
 
@@ -53,8 +53,43 @@ A clean migration: one archived post did not make it to the new site.
 
 ---
 
+## IntelexVision → Eluviant
+
+- **Move:** `www.intelexvision.com` → `www.eluviant.com`. The company announced its new name on 15 July 2026.
+- **Run:** 8 November 2026. 150 legacy URLs. One run so far.
+
+| Result | Count |
+|---|---|
+| Lands where expected | 1 |
+| Lands on the homepage | 149 |
+
+**What happens:** every deep page on the old domain answers 301 to `https://www.eluviant.com`, the homepage. **Likely** a domain-level redirect that drops the path, so no old page keeps its address. Search engines treat this as a soft 404.
+
+**Why it matters, verified with curl on 8 November 2026:**
+
+| Old URL | Today | On the new site |
+|---|---|---|
+| `/about/` | 301 → homepage | `/about` leads to `/about-us`, which answers 200: a matching page exists |
+| `/contact/` | 301 → homepage | `/contact` answers 404 |
+| `/careers/` | 301 → homepage | `/careers` answers 404 |
+| `/privacy-policy/` | 301 → homepage | `/privacy-policy` answers 404 |
+
+At least one old page has a direct match on the new site and still lands on the homepage. Whether the others have matches under different names was not checked.
+
+---
+
+## Freepik → Magnific: a run that is not a result
+
+- **Move:** `www.freepik.com` → `www.magnific.com`. Magnific's docs say Freepik links redirect so saved links keep working.
+- **Run:** 8 November 2026. 150 legacy URLs.
+
+All 150 URLs answered HTTP 403 with no redirect. CutoverGate marked the run **BLOCKED**: the site refused the probe (**Possible:** bot protection or rate limiting), so the run says nothing about the redirects. It did not report 150 failures, did not pass or fail the gate, and was kept out of history. No attempt was made to get around the protection.
+
+---
+
 ## What this shows
 
-- The same tool, the same rules, two very different migrations: one with a single missing page, one where 43 of 150 archived blog URLs (29%) do not arrive where they should.
+- The same tool, the same rules, very different migrations: one with a single missing page, one where 43 of 150 archived blog URLs (29%) do not arrive where they should, and one where 149 of 150 land on the homepage.
+- When a site refuses the probe, the run is reported as not tested (BLOCKED), not as 150 failures.
 - The failures are grouped into a few causes, so the fix is a handful of rule changes, not 43 tickets.
 - Results are repeatable: a second run on the same map gives the same result.
