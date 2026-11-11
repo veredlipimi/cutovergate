@@ -6,6 +6,9 @@ import { USER_AGENT } from './util.mjs';
 const ASSET = /\.(css|js|mjs|map|json|xml|txt|ico|png|jpe?g|gif|svg|webp|avif|woff2?|ttf|eot|mp4|mp3|webm|zip)$/i;
 const NOISE = /^\/(wp-json|wp-admin|wp-includes|cdn-cgi|_next|static|assets|feed|xmlrpc\.php|\.well-known)(\/|$)|\/(feed|amp)\/?$/i;
 // The old site's own error page is not a legacy URL anyone needs redirected.
+// Archived URLs that perform an action when requested (logout, delete, unsubscribe…). Probing them with a
+// GET could change state on a real site, so they never enter a harvested map.
+const ACTION_URL = /(^|\/)(log-?out|sign-?out|logoff|delete|remove|destroy|unsubscribe|deactivate|revoke|purge|wipe|vote|like)(\.(php|aspx?|html?|cfm|jsp))?(\/|\?|$)|\/cart\/(add|remove|update|delete)(\/|\?|$)|[?&](action|do|cmd|op|task)=(log-?out|delete|remove|unsubscribe|add|cancel)\b|[?&](delete|remove|logout|unsubscribe)=/i;
 const ERROR_PAGE = /\/(404|410|500|not-?found|page-not-found|error)(\.(html?|php|aspx?))?\/?$/i;
 // Tracking and cache-busting parameters: removed, so the page itself is kept once.
 const TRACKING = /^(utm_.*|fbclid|gclid|dclid|msclkid|mc_cid|mc_eid|_ga|_gl|igshid|yclid|wbraid|gbraid|mkt_tok|linkid|_hsenc|_hsmi|hsctatracking|vero_id|ref|ref_src|source|es_p|ver|print|share|target|amp|replytocom|wpx-.*)$/i;
@@ -25,6 +28,7 @@ export function cleanPaths(originals, { limit = 150 } = {}) {
     try { u = new URL(/^https?:\/\//i.test(o) ? o : 'http://' + o); } catch { continue; }
     const p = decodeSafe(u.pathname);
     if (ASSET.test(p) || NOISE.test(p) || ERROR_PAGE.test(p) || malformed(p) || p.length > 200) continue;
+    if (ACTION_URL.test(p + u.search)) continue; // never probe a URL that performs an action
     if ([...u.searchParams.keys()].some(k => /^(s|p)$/i.test(k))) continue; // site search and ?p= previews
     for (const k of [...u.searchParams.keys()]) if (TRACKING.test(k)) u.searchParams.delete(k);
     const path = p.replace(/\/+$/, '') || '/';

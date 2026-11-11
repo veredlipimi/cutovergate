@@ -797,3 +797,11 @@ test('qa pipeline runs the agent, including action probes, on the landing pages'
   } else assert.equal(steps['action-probes'].skipped, true);
   assert.ok(fs.existsSync(qa.report));
 });
+
+test('harvest never keeps URLs that perform an action (logout, delete, unsubscribe, add to cart)', () => {
+  const out = cleanPaths(['http://o.example/about', 'http://o.example/logout', 'http://o.example/account/delete?id=3',
+    'http://o.example/newsletter/unsubscribe', 'http://o.example/cart/add?sku=1', 'http://o.example/blog/how-to-delete-files']);
+  assert.ok(out.includes('/about'));
+  for (const bad of ['/logout', '/account/delete?id=3', '/newsletter/unsubscribe', '/cart/add?sku=1']) assert.ok(!out.includes(bad), bad);
+  assert.ok(out.includes('/blog/how-to-delete-files'), 'an article slug that merely mentions delete is kept');
+});

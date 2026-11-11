@@ -114,7 +114,7 @@ export async function runAgentOnTargets(run, { agent, maxPages = 20, outDir, vie
     ['crawl', 'crawl.mjs', ['--url', siteOrigin + '/', '--urls', path.join(qaDir, 'targets.txt'), '--no-follow', '--max-pages', String(pages.length), '--out', qaDir]],
     ['audit', 'audit.mjs', ['--sitemap', path.join(qaDir, 'sitemap.json'), '--out', qaDir, '--viewports', viewports]],
     ['field-matrix', 'field-matrix.mjs', ['--sitemap', path.join(qaDir, 'sitemap.json'), '--out', qaDir]],
-    // False success and double submit; responses are simulated in the browser, so this is safe on production.
+    // False success and double submit: HTTP responses simulated in the browser, WebSockets/service workers/destructive GETs blocked.
     // Skipped (not failed) with an older agent that does not have the script yet.
     ['action-probes', 'action-probes.mjs', ['--sitemap', path.join(qaDir, 'sitemap.json'), '--out', qaDir], { optional: true }],
     ['report', 'report.mjs', ['--run', qaDir, '--lang', lang, '--title', `Post-migration QA — ${run.domain}`]],
