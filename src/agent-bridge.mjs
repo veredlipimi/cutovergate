@@ -105,7 +105,7 @@ export async function runAgentOnTargets(run, { agent, maxPages = 20, outDir, vie
     `QA ${siteOrigin}`, '',
     `Context: website migration. CutoverGate gate = ${run.gate.status} (${run.phase}), report: ${run.files.html}`,
     `Scope: the ${pages.length} destination pages in targets.txt${total > pages.length ? ` (sampled from ${total}, spread across groups: ${Object.keys(groups).join(', ')})` : ''}.`,
-    'The automated pass already ran in this folder — continue from Phase 4 (field matrix review + exploratory) and finish with the report.',
+    'The automated pass already ran in this folder (audit, field matrix, action probes) — continue from Phase 4 (review + exploratory) and finish with the report.',
   ].join('\n') + '\n');
   if (!pages.length) return { qaDir, pages, total, skipped: 'no passing same-site targets' };
 
@@ -114,10 +114,14 @@ export async function runAgentOnTargets(run, { agent, maxPages = 20, outDir, vie
     ['crawl', 'crawl.mjs', ['--url', siteOrigin + '/', '--urls', path.join(qaDir, 'targets.txt'), '--no-follow', '--max-pages', String(pages.length), '--out', qaDir]],
     ['audit', 'audit.mjs', ['--sitemap', path.join(qaDir, 'sitemap.json'), '--out', qaDir, '--viewports', viewports]],
     ['field-matrix', 'field-matrix.mjs', ['--sitemap', path.join(qaDir, 'sitemap.json'), '--out', qaDir]],
+    // False success and double submit; responses are simulated in the browser, so this is safe on production.
+    // Skipped (not failed) with an older agent that does not have the script yet.
+    ['action-probes', 'action-probes.mjs', ['--sitemap', path.join(qaDir, 'sitemap.json'), '--out', qaDir], { optional: true }],
     ['report', 'report.mjs', ['--run', qaDir, '--lang', lang, '--title', `Post-migration QA — ${run.domain}`]],
   ];
   const ran = [];
-  for (const [name, script, args] of steps) {
+  for (const [name, script, args, opts = {}] of steps) {
+    if (opts.optional && !fs.existsSync(path.join(agent, 'scripts', script))) { log?.(`  · ${name} (skipped: update web-qa-agent)\n`); ran.push({ name, skipped: true }); continue; }
     log?.(`  · ${name}\n`);
     const r = await step(agent, script, args);
     ran.push({ name, code: r.code });
