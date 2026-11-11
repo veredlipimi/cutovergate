@@ -38,7 +38,7 @@ Commands
               --old-domain HOST --out map.csv [--mode same-path|any] [--limit 150] [--from YYYY] [--to YYYY]
               same-path = domain move (old path → same path); any = platform change (any working, non-homepage target)
   qa          Gate first, then QA the destination pages with web-qa-agent
-              probe options + [--agent PATH] [--max-pages 20] [--viewports mobile,desktop] [--lang en|he] [--force]
+              probe options + [--agent PATH] [--max-pages 20] [--viewports mobile,desktop] [--lang en|he] [--force]   (runs audit, field matrix and action probes)
   files       Check linked files (PDFs, documents) are reachable
               --origin URL (--urls FILE | --pages FILE) [--pattern REGEX] [--json] [--out DIR]
   exceptions  add --file F --path P --reason "…" [--ttl none|7|14|30|90] [--by NAME]

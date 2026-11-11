@@ -780,3 +780,20 @@ test('hints: nearly every URL to the homepage reads as a domain-level redirect t
   const few = results.slice(0, 3).concat(Array.from({ length: 10 }, (_, i) => ({ from: `/ok${i}`, result: 'REDIRECT_OK', ok: true, group: 'g' })));
   assert.match(triageHints(few, { g: { total: 13, WRONG_TARGET: 3 } }).find(h => h.id === 'WRONG_TARGET').text, /catch-all rule/);
 });
+
+// ---------------------------------------------------------------- page QA pipeline (needs web-qa-agent installed)
+import { runAgentOnTargets } from '../src/agent-bridge.mjs';
+const agentDir = findAgent();
+test('qa pipeline runs the agent, including action probes, on the landing pages', { skip: !agentDir && 'web-qa-agent not installed', timeout: 300000 }, async () => {
+  const f = path.join(tmp, 'qa.csv');
+  fs.writeFileSync(f, 'from,to\n/old-pass,/new-pass\n');
+  const run = await runSite({ map: f, origin: site.url }, opts({ name: 'qa' }));
+  const qa = await runAgentOnTargets(run, { agent: agentDir, maxPages: 1, outDir: path.join(tmp, 'qa'), viewports: 'desktop' });
+  assert.equal(qa.failedStep, undefined, qa.error);
+  const steps = Object.fromEntries(qa.ran.map(r => [r.name, r]));
+  if (fs.existsSync(path.join(agentDir, 'scripts', 'action-probes.mjs'))) {
+    assert.equal(steps['action-probes'].code, 0);
+    assert.ok(fs.existsSync(path.join(qa.qaDir, 'findings.actions.json')));
+  } else assert.equal(steps['action-probes'].skipped, true);
+  assert.ok(fs.existsSync(qa.report));
+});

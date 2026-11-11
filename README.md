@@ -245,7 +245,7 @@ cutovergate qa --map map.csv --candidates "staging=…,live=…" --fingerprint "
 
 1. It runs the full gate. If the gate fails, page QA is skipped; pass `--force` to QA only the pages that already land correctly.
 2. It takes the destination pages from the map. Duplicates are removed, and a capped run still covers every `group` (round-robin).
-3. It runs the agent's automated pass on exactly those pages: audit (accessibility, performance, RTL, console/network, passive security), the field matrix, and a report. There is no full-site crawl.
+3. It runs the agent's automated pass on exactly those pages: audit (accessibility, performance, RTL, console/network, passive security), the field matrix, action probes (false success and double submit, with responses simulated in the browser, so nothing reaches the server), and a report. There is no full-site crawl.
 4. It writes `claude-prompt.md` into the QA folder. Paste it into Claude Code to continue with the exploratory pass.
 
 The agent is found at `--agent`, `$WEB_QA_AGENT` or `~/.claude/skills/web-qa-agent`. The link works the other way too: when CutoverGate is installed, the agent's own redirect check uses it as its engine, so both tools always classify a redirect the same way.
