@@ -805,3 +805,10 @@ test('harvest never keeps URLs that perform an action (logout, delete, unsubscri
   for (const bad of ['/logout', '/account/delete?id=3', '/newsletter/unsubscribe', '/cart/add?sku=1']) assert.ok(!out.includes(bad), bad);
   assert.ok(out.includes('/blog/how-to-delete-files'), 'an article slug that merely mentions delete is kept');
 });
+
+test('harvest drops camelCase action URLs (/account/deleteAccount) but keeps camelCase pages', () => {
+  const out = cleanPaths(['http://o.example/account/deleteAccount', 'http://o.example/user/DeleteAccount', 'http://o.example/account/removeItem',
+    'http://o.example/auth/userLogOut', 'http://o.example/products/RemoteControl', 'http://o.example/blog/iPhoneTips', 'http://o.example/blog/how-to-delete-files']);
+  for (const bad of ['/account/deleteAccount', '/user/DeleteAccount', '/account/removeItem', '/auth/userLogOut']) assert.ok(!out.includes(bad), bad);
+  for (const ok of ['/products/RemoteControl', '/blog/iPhoneTips', '/blog/how-to-delete-files']) assert.ok(out.includes(ok), ok);
+});
